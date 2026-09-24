@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   IndianRupee, 
   FileText, 
@@ -9,17 +9,26 @@ import {
   ArrowUpRight,
   TrendingUp,
   Eye,
-  PlusCircle
+  PlusCircle,
+  Receipt,
+  PiggyBank,
+  RefreshCw
 } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
 import { StatusBadge } from '../common/StatusBadge';
 
 export const DashboardView = () => {
-  const { stats, invoices, navigateTo } = useShop();
+  const { stats, invoices, analyticsData, loadAnalytics, userRole, navigateTo } = useShop();
   const [chartPeriod, setChartPeriod] = useState('Week'); // Day, Week, Month, Year
 
-  // Revenue chart dataset per period
-  const chartDataMap = {
+  useEffect(() => {
+    if (loadAnalytics) {
+      loadAnalytics(chartPeriod);
+    }
+  }, [chartPeriod]);
+
+  // Fallback demo chart dataset if offline / no Supabase
+  const fallbackChartDataMap = {
     Day: [
       { label: '8 AM', value: 1200 },
       { label: '10 AM', value: 3400 },
@@ -52,11 +61,27 @@ export const DashboardView = () => {
     ]
   };
 
-  const currentChartData = chartDataMap[chartPeriod];
-  const maxValue = Math.max(...currentChartData.map(d => d.value));
+  const currentChartData = (analyticsData?.revenueTrend && analyticsData.revenueTrend.length > 0)
+    ? analyticsData.revenueTrend.map(d => ({ label: d.label, value: parseFloat(d.value) || 0 }))
+    : fallbackChartDataMap[chartPeriod];
+
+  const maxValue = Math.max(1, ...currentChartData.map(d => d.value));
 
   // 5 Recent orders
-  const recentOrders = invoices.slice(0, 5);
+  const recentOrders = (invoices || []).slice(0, 5);
+
+  // Pipeline status colors lookup
+  const statusColors = {
+    PENDING: 'bg-amber-500 text-amber-600',
+    CUTTING: 'bg-amber-500 text-amber-600',
+    STITCHING: 'bg-blue-500 text-blue-600',
+    FITTING: 'bg-indigo-500 text-indigo-600',
+    PACKING: 'bg-purple-500 text-purple-600',
+    READY: 'bg-[#5F8F68] text-[#5F8F68]',
+    DELIVERED: 'bg-gray-400 text-gray-500'
+  };
+
+  const isWorker = userRole === 'WORKER';
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
@@ -65,10 +90,10 @@ export const DashboardView = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-3xl bg-[#202020] text-white shadow-xl relative overflow-hidden">
         <div className="relative z-10 space-y-1">
           <span className="text-xs font-semibold text-emerald-400 uppercase tracking-widest">
-            POS Control Center
+            POS Control Center ({userRole})
           </span>
           <h2 className="text-2xl font-bold tracking-tight">
-            TailorPOS Daily Shop Summary
+            Mohit Tailoring Daily Shop Summary
           </h2>
           <p className="text-xs text-gray-300 max-w-md">
             Manage stitching workflow, payments, customer measurements, and deliveries in seconds.
@@ -77,12 +102,21 @@ export const DashboardView = () => {
 
         <div className="relative z-10 flex items-center gap-3">
           <button
-            onClick={() => navigateTo('new-invoice')}
-            className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-white text-[#202020] font-bold text-sm hover:bg-gray-100 shadow-md transition-smooth"
+            onClick={() => loadAnalytics(chartPeriod)}
+            className="p-3 rounded-2xl bg-[#282828] text-gray-200 hover:text-white hover:bg-[#333333] transition-smooth cursor-pointer"
+            title="Refresh Analytics"
           >
-            <PlusCircle className="w-4 h-4 text-emerald-600" />
-            + New Invoice
+            <RefreshCw className={`w-4 h-4 ${analyticsData?.loading ? 'animate-spin' : ''}`} />
           </button>
+          {!isWorker && (
+            <button
+              onClick={() => navigateTo('new-invoice')}
+              className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-white text-[#202020] font-bold text-sm hover:bg-gray-100 shadow-md transition-smooth cursor-pointer"
+            >
+              <PlusCircle className="w-4 h-4 text-emerald-600" />
+              + New Invoice
+            </button>
+          )}
         </div>
 
         {/* Decorative background shape */}
@@ -102,10 +136,10 @@ export const DashboardView = () => {
           </div>
           <div className="mt-3">
             <h3 className="text-2xl font-bold text-[#202020] dark:text-white">
-              ₹18,450
+              {isWorker ? '—' : `₹${(stats.todayRevenue || 0).toLocaleString('en-IN')}`}
             </h3>
             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#5F8F68] mt-1">
-              <TrendingUp className="w-3 h-3" /> +14.2% from yesterday
+              <TrendingUp className="w-3 h-3" /> Collected today
             </span>
           </div>
         </div>
@@ -120,9 +154,9 @@ export const DashboardView = () => {
           </div>
           <div className="mt-3">
             <h3 className="text-2xl font-bold text-[#202020] dark:text-white">
-              24
+              {stats.totalInvoices || 0}
             </h3>
-            <span className="text-[11px] text-[#777777] mt-1 block">8 created today</span>
+            <span className="text-[11px] text-[#777777] mt-1 block">Active order count</span>
           </div>
         </div>
 
@@ -136,7 +170,7 @@ export const DashboardView = () => {
           </div>
           <div className="mt-3">
             <h3 className="text-2xl font-bold text-[#202020] dark:text-white">
-              8
+              {stats.pendingOrders || 0}
             </h3>
             <span className="text-[11px] text-[#C89B3C] font-semibold mt-1 block">In production stage</span>
           </div>
@@ -152,7 +186,7 @@ export const DashboardView = () => {
           </div>
           <div className="mt-3">
             <h3 className="text-2xl font-bold text-[#202020] dark:text-white">
-              5
+              {stats.readyForDelivery || 0}
             </h3>
             <span className="text-[11px] text-purple-600 font-semibold mt-1 block">Packed & ready</span>
           </div>
@@ -168,13 +202,44 @@ export const DashboardView = () => {
           </div>
           <div className="mt-3">
             <h3 className="text-2xl font-bold text-[#B85C5C]">
-              ₹7,250
+              {isWorker ? '—' : `₹${(stats.totalOutstanding || 0).toLocaleString('en-IN')}`}
             </h3>
             <span className="text-[11px] text-[#777777] mt-1 block">To be collected</span>
           </div>
         </div>
 
       </div>
+
+      {/* Owner Financial Bar Summary (Expenses & Estimated Net) */}
+      {!isWorker && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="p-4 rounded-2xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-600">
+                <Receipt className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-xs font-semibold text-[#777777]">Today's Expenses</span>
+                <h4 className="text-lg font-bold text-[#202020] dark:text-white">₹{(stats.todayExpenses || 0).toLocaleString('en-IN')}</h4>
+              </div>
+            </div>
+            <span className="text-xs text-[#777777]">Shop operating costs</span>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-600">
+                <PiggyBank className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-xs font-semibold text-[#777777]">Estimated Net</span>
+                <h4 className="text-lg font-bold text-emerald-600">₹{(stats.estimatedNet || 0).toLocaleString('en-IN')}</h4>
+              </div>
+            </div>
+            <span className="text-xs text-[#777777]">Sales - Expenses</span>
+          </div>
+        </div>
+      )}
 
       {/* Revenue Chart & Stage Breakdown Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -188,50 +253,58 @@ export const DashboardView = () => {
             </div>
 
             {/* Timeframe Filter Buttons */}
-            <div className="flex items-center p-1 rounded-xl bg-[#F5F5F5] dark:bg-[#282828] border border-[#E3E3E3] dark:border-[#333333]">
-              {['Day', 'Week', 'Month', 'Year'].map((period) => (
-                <button
-                  key={period}
-                  onClick={() => setChartPeriod(period)}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-smooth ${
-                    chartPeriod === period
-                      ? 'bg-white dark:bg-[#1E1E1E] text-[#202020] dark:text-white shadow-xs'
-                      : 'text-[#777777] hover:text-[#202020] dark:hover:text-white'
-                  }`}
-                >
-                  {period}
-                </button>
-              ))}
-            </div>
+            {!isWorker && (
+              <div className="flex items-center p-1 rounded-xl bg-[#F5F5F5] dark:bg-[#282828] border border-[#E3E3E3] dark:border-[#333333]">
+                {['Day', 'Week', 'Month', 'Year'].map((period) => (
+                  <button
+                    key={period}
+                    onClick={() => setChartPeriod(period)}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-smooth cursor-pointer ${
+                      chartPeriod === period
+                        ? 'bg-white dark:bg-[#1E1E1E] text-[#202020] dark:text-white shadow-xs'
+                        : 'text-[#777777] hover:text-[#202020] dark:hover:text-white'
+                    }`}
+                  >
+                    {period}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Bar / SVG Visual Chart */}
           <div className="pt-4 pb-2">
-            <div className="h-[220px] flex items-end justify-between gap-3 md:gap-6 px-2">
-              {currentChartData.map((item, index) => {
-                const heightPercent = Math.max(12, Math.round((item.value / maxValue) * 100));
-                return (
-                  <div key={index} className="flex-1 flex flex-col items-center gap-2 group relative">
-                    {/* Tooltip on Hover */}
-                    <div className="opacity-0 group-hover:opacity-100 transition-all duration-150 absolute -top-8 px-2 py-1 rounded-lg bg-[#202020] text-white text-[10px] font-bold pointer-events-none whitespace-nowrap shadow-md z-10">
-                      ₹{item.value.toLocaleString('en-IN')}
-                    </div>
+            {isWorker ? (
+              <div className="h-[220px] flex items-center justify-center text-xs text-[#777777]">
+                Financial chart metrics restricted for Worker accounts.
+              </div>
+            ) : (
+              <div className="h-[220px] flex items-end justify-between gap-3 md:gap-6 px-2">
+                {currentChartData.map((item, index) => {
+                  const heightPercent = Math.max(12, Math.round((item.value / maxValue) * 100));
+                  return (
+                    <div key={index} className="flex-1 flex flex-col items-center gap-2 group relative">
+                      {/* Tooltip on Hover */}
+                      <div className="opacity-0 group-hover:opacity-100 transition-all duration-150 absolute -top-8 px-2 py-1 rounded-lg bg-[#202020] text-white text-[10px] font-bold pointer-events-none whitespace-nowrap shadow-md z-10">
+                        ₹{item.value.toLocaleString('en-IN')}
+                      </div>
 
-                    {/* Bar */}
-                    <div className="w-full bg-[#EEEEEE] dark:bg-[#282828] rounded-xl h-full flex items-end p-1 overflow-hidden">
-                      <div 
-                        style={{ height: `${heightPercent}%` }}
-                        className="w-full rounded-lg bg-[#202020] dark:bg-emerald-500 transition-all duration-500 group-hover:bg-emerald-600"
-                      />
-                    </div>
+                      {/* Bar */}
+                      <div className="w-full bg-[#EEEEEE] dark:bg-[#282828] rounded-xl h-full flex items-end p-1 overflow-hidden">
+                        <div 
+                          style={{ height: `${heightPercent}%` }}
+                          className="w-full rounded-lg bg-[#202020] dark:bg-emerald-500 transition-all duration-500 group-hover:bg-emerald-600"
+                        />
+                      </div>
 
-                    <span className="text-xs font-semibold text-[#777777] dark:text-[#9E9E9E]">
-                      {item.label}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+                      <span className="text-xs font-semibold text-[#777777] dark:text-[#9E9E9E]">
+                        {item.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
@@ -243,34 +316,59 @@ export const DashboardView = () => {
           </div>
 
           <div className="space-y-3 py-2">
-            {[
-              { label: 'Cutting', count: 8, total: 35, color: 'bg-amber-500', text: 'text-amber-600' },
-              { label: 'Stitching', count: 6, total: 35, color: 'bg-blue-500', text: 'text-blue-600' },
-              { label: 'Packing', count: 4, total: 35, color: 'bg-purple-500', text: 'text-purple-600' },
-              { label: 'Ready', count: 5, total: 35, color: 'bg-[#5F8F68]', text: 'text-[#5F8F68]' },
-              { label: 'Delivered', count: 12, total: 35, color: 'bg-gray-400', text: 'text-gray-500' },
-            ].map((stage, idx) => (
-              <div key={idx} className="space-y-1">
-                <div className="flex items-center justify-between text-xs font-semibold">
-                  <span className="text-[#202020] dark:text-white flex items-center gap-2">
-                    <span className={`w-2.5 h-2.5 rounded-full ${stage.color}`} />
-                    {stage.label}
-                  </span>
-                  <span className={stage.text}>{stage.count} orders</span>
+            {(analyticsData?.orderStatusSummary && analyticsData.orderStatusSummary.length > 0) ? (
+              analyticsData.orderStatusSummary.map((stage, idx) => {
+                const totalOrdersCount = analyticsData.orderStatusSummary.reduce((acc, c) => acc + (c.count || 0), 0) || 1;
+                const styleClass = statusColors[stage.label?.toUpperCase()] || 'bg-gray-400 text-gray-500';
+                const [bgColor, textColor] = styleClass.split(' ');
+                return (
+                  <div key={idx} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs font-semibold">
+                      <span className="text-[#202020] dark:text-white flex items-center gap-2">
+                        <span className={`w-2.5 h-2.5 rounded-full ${bgColor}`} />
+                        {stage.label}
+                      </span>
+                      <span className={textColor}>{stage.count} orders</span>
+                    </div>
+                    <div className="w-full h-2 rounded-full bg-[#EEEEEE] dark:bg-[#282828] overflow-hidden">
+                      <div 
+                        style={{ width: `${Math.min(100, Math.round((stage.count / totalOrdersCount) * 100))}%` }}
+                        className={`h-full rounded-full ${bgColor}`}
+                      />
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              [
+                { label: 'Cutting', count: stats.statusCounts.cutting, total: stats.totalInvoices || 1, color: 'bg-amber-500', text: 'text-amber-600' },
+                { label: 'Stitching', count: stats.statusCounts.stitching, total: stats.totalInvoices || 1, color: 'bg-blue-500', text: 'text-blue-600' },
+                { label: 'Packing', count: stats.statusCounts.packing, total: stats.totalInvoices || 1, color: 'bg-purple-500', text: 'text-purple-600' },
+                { label: 'Ready', count: stats.statusCounts.ready, total: stats.totalInvoices || 1, color: 'bg-[#5F8F68]', text: 'text-[#5F8F68]' },
+                { label: 'Delivered', count: stats.statusCounts.delivered, total: stats.totalInvoices || 1, color: 'bg-gray-400', text: 'text-gray-500' },
+              ].map((stage, idx) => (
+                <div key={idx} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs font-semibold">
+                    <span className="text-[#202020] dark:text-white flex items-center gap-2">
+                      <span className={`w-2.5 h-2.5 rounded-full ${stage.color}`} />
+                      {stage.label}
+                    </span>
+                    <span className={stage.text}>{stage.count} orders</span>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-[#EEEEEE] dark:bg-[#282828] overflow-hidden">
+                    <div 
+                      style={{ width: `${Math.min(100, Math.round((stage.count / stage.total) * 100))}%` }}
+                      className={`h-full rounded-full ${stage.color}`}
+                    />
+                  </div>
                 </div>
-                <div className="w-full h-2 rounded-full bg-[#EEEEEE] dark:bg-[#282828] overflow-hidden">
-                  <div 
-                    style={{ width: `${(stage.count / stage.total) * 100}%` }}
-                    className={`h-full rounded-full ${stage.color}`}
-                  />
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
 
           <button
             onClick={() => navigateTo('registers')}
-            className="w-full py-2.5 rounded-xl border border-[#E3E3E3] dark:border-[#333333] font-semibold text-xs text-[#202020] dark:text-white hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth text-center block"
+            className="w-full py-2.5 rounded-xl border border-[#E3E3E3] dark:border-[#333333] font-semibold text-xs text-[#202020] dark:text-white hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth text-center block cursor-pointer"
           >
             Open Production Registers →
           </button>
@@ -287,7 +385,7 @@ export const DashboardView = () => {
           </div>
           <button
             onClick={() => navigateTo('registers')}
-            className="flex items-center gap-1 text-xs font-bold text-[#202020] dark:text-white hover:underline"
+            className="flex items-center gap-1 text-xs font-bold text-[#202020] dark:text-white hover:underline cursor-pointer"
           >
             View all orders <ArrowUpRight className="w-4 h-4" />
           </button>
@@ -307,32 +405,40 @@ export const DashboardView = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E3E3E3] dark:divide-[#333333]">
-              {recentOrders.map((inv) => (
-                <tr 
-                  key={inv.id}
-                  onClick={() => navigateTo('invoice-detail', { invoiceId: inv.id })}
-                  className="hover:bg-[#F5F5F5] dark:hover:bg-[#282828] cursor-pointer transition-smooth group"
-                >
-                  <td className="py-3.5 px-3 font-bold text-[#202020] dark:text-white">{inv.id}</td>
-                  <td className="py-3.5 px-3">
-                    <span className="font-medium text-[#202020] dark:text-white block">{inv.customerName}</span>
-                    <span className="text-[10px] text-[#777777]">{inv.phone}</span>
-                  </td>
-                  <td className="py-3.5 px-3 text-[#777777] dark:text-[#9E9E9E]">
-                    {inv.services.map(s => s.name).join(', ')}
-                  </td>
-                  <td className="py-3.5 px-3 font-medium text-[#202020] dark:text-white">{inv.dueDate}</td>
-                  <td className="py-3.5 px-3 font-bold text-[#202020] dark:text-white">₹{inv.total}</td>
-                  <td className="py-3.5 px-3">
-                    <StatusBadge status={inv.status} size="sm" />
-                  </td>
-                  <td className="py-3.5 px-3 text-right">
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#777777] group-hover:text-[#202020] dark:group-hover:text-white">
-                      <Eye className="w-3.5 h-3.5" /> View
-                    </span>
+              {recentOrders.length > 0 ? (
+                recentOrders.map((inv) => (
+                  <tr 
+                    key={inv.id}
+                    onClick={() => navigateTo('invoice-detail', { invoiceId: inv.id })}
+                    className="hover:bg-[#F5F5F5] dark:hover:bg-[#282828] cursor-pointer transition-smooth group"
+                  >
+                    <td className="py-3.5 px-3 font-bold text-[#202020] dark:text-white">{inv.id}</td>
+                    <td className="py-3.5 px-3">
+                      <span className="font-medium text-[#202020] dark:text-white block">{inv.customerName}</span>
+                      <span className="text-[10px] text-[#777777]">{inv.phone}</span>
+                    </td>
+                    <td className="py-3.5 px-3 text-[#777777] dark:text-[#9E9E9E]">
+                      {(inv.services || []).map(s => s.name).join(', ')}
+                    </td>
+                    <td className="py-3.5 px-3 font-medium text-[#202020] dark:text-white">{inv.dueDate}</td>
+                    <td className="py-3.5 px-3 font-bold text-[#202020] dark:text-white">₹{inv.total}</td>
+                    <td className="py-3.5 px-3">
+                      <StatusBadge status={inv.status} size="sm" />
+                    </td>
+                    <td className="py-3.5 px-3 text-right">
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#777777] group-hover:text-[#202020] dark:group-hover:text-white">
+                        <Eye className="w-3.5 h-3.5" /> View
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={7} className="py-6 text-center text-xs text-[#777777]">
+                    No orders recorded yet. Click "+ New Invoice" to create an order.
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>

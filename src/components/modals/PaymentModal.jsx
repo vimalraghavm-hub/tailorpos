@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
 import { X, CreditCard, Banknote, QrCode, CheckCircle2 } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
+import { useModalDismiss } from '../../utils/modalUtils';
+import { Modal } from '../common/Modal';
 
 export const PaymentModal = ({ invoice, onClose }) => {
   const { recordPayment } = useShop();
   const [amount, setAmount] = useState(invoice ? invoice.balance : 0);
   const [paymentMode, setPaymentMode] = useState('UPI');
+
+  useModalDismiss(onClose, Boolean(invoice));
 
   if (!invoice) return null;
 
@@ -19,8 +23,13 @@ export const PaymentModal = ({ invoice, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
-      <div className="relative w-full max-w-md bg-white dark:bg-[#1E1E1E] rounded-3xl shadow-2xl border border-[#E3E3E3] dark:border-[#333333] overflow-hidden">
+    <Modal
+      isOpen={Boolean(invoice)}
+      onClose={onClose}
+      size="sm"
+      maxWidthClass="max-w-md"
+      zIndex={9990}
+    >
         
         {/* Header */}
         <div className="p-5 border-b border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between">
@@ -120,8 +129,6 @@ export const PaymentModal = ({ invoice, onClose }) => {
           </div>
 
         </form>
-
-      </div>
-    </div>
+    </Modal>
   );
 };

@@ -3,6 +3,7 @@ import { ShopProvider, useShop } from './context/ShopContext';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { Toast } from './components/common/Toast';
+import { CustomerProfileModal } from './components/modals/CustomerProfileModal';
 
 import { DashboardView } from './components/views/DashboardView';
 import { NewInvoiceView } from './components/views/NewInvoiceView';
@@ -11,6 +12,7 @@ import { MeasurementsView } from './components/views/MeasurementsView';
 import { CustomersView } from './components/views/CustomersView';
 import { InvoiceDetailView } from './components/views/InvoiceDetailView';
 import { SettingsView } from './components/views/SettingsView';
+import { WorkersView } from './components/views/WorkersView';
 
 const MainContent = () => {
   const { currentView } = useShop();
@@ -24,13 +26,15 @@ const MainContent = () => {
       case 'registers':
         return <RegistersView />;
       case 'measurements':
-        return <MeasurementsView />;
+        return <CustomersView />;
       case 'customers':
         return <CustomersView />;
       case 'invoice-detail':
         return <InvoiceDetailView />;
       case 'settings':
         return <SettingsView />;
+      case 'workers':
+        return <WorkersView />;
       default:
         return <DashboardView />;
     }
@@ -53,6 +57,7 @@ export function App() {
         <Sidebar />
         <MainContent />
         <Toast />
+        <CustomerProfileModal />
       </div>
     </ShopProvider>
   );

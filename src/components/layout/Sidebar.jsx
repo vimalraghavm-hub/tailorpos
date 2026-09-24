@@ -23,21 +23,31 @@ export const Sidebar = () => {
     setSidebarCollapsed,
     mobileMenuOpen,
     setMobileMenuOpen,
-    showToast
+    showToast,
+    userRole,
+    setShowAuthModal
   } = useShop();
 
-  const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'new-invoice', label: 'New Invoice', icon: PlusCircle, highlight: true },
-    { id: 'registers', label: 'Registers', icon: ClipboardList },
-    { id: 'measurements', label: 'Measurements', icon: Ruler },
-    { id: 'customers', label: 'Customers', icon: Users },
+  const { hasWorkerPermission } = useShop();
+
+  const allNavItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['OWNER', 'WORKER'], permissionCheck: () => hasWorkerPermission('VIEW_ASSIGNED_ORDERS') || hasWorkerPermission('VIEW_ALL_ORDERS') },
+    { id: 'new-invoice', label: 'New Invoice', icon: PlusCircle, roles: ['OWNER'] },
+    { id: 'registers', label: 'Registers', icon: ClipboardList, roles: ['OWNER', 'WORKER'], permissionCheck: () => hasWorkerPermission('VIEW_REGISTERS') },
+    { id: 'customers', label: 'Customers', icon: Users, roles: ['OWNER', 'WORKER'], permissionCheck: () => hasWorkerPermission('VIEW_CUSTOMER_PROFILE') },
+    { id: 'workers', label: 'Staff & Workers', icon: Users, roles: ['OWNER'] }
   ];
 
+  const navItems = allNavItems.filter(item => {
+    if (!item.roles.includes(userRole)) return false;
+    if (userRole === 'WORKER' && item.permissionCheck && !item.permissionCheck()) return false;
+    return true;
+  });
+
   const bottomItems = [
-    { id: 'settings', label: 'Settings', icon: Settings },
+    ...(userRole === 'OWNER' ? [{ id: 'settings', label: 'Settings', icon: Settings }] : []),
     { id: 'help', label: 'Help & Support', icon: HelpCircle, action: () => showToast("Help & Support", "Support desk is available 9 AM - 8 PM", "info") },
-    { id: 'logout', label: 'Logout', icon: LogOut, action: () => showToast("Demo Mode", "Logout disabled in prototype mode", "info") },
+    { id: 'logout', label: 'Account & Roles', icon: LogOut, action: () => setShowAuthModal(true) },
   ];
 
   const handleNav = (item) => {
@@ -52,14 +62,18 @@ export const Sidebar = () => {
     <div className="flex flex-col h-full bg-[#FFFFFF] dark:bg-[#1E1E1E] border-r border-[#E3E3E3] dark:border-[#333333] transition-smooth select-none">
       {/* Brand Header */}
       <div className="p-4 border-b border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between">
-        <div className="flex items-center gap-3 overflow-hidden">
-          <div className="w-10 h-10 rounded-xl bg-[#202020] text-white flex items-center justify-center shrink-0 shadow-sm">
+        <div 
+          onClick={() => navigateTo('dashboard')}
+          className="flex items-center gap-3 overflow-hidden cursor-pointer group"
+          title="Go to Dashboard"
+        >
+          <div className="w-10 h-10 rounded-xl bg-[#202020] text-white flex items-center justify-center shrink-0 shadow-sm group-hover:scale-105 transition-smooth">
             <Scissors className="w-5 h-5 text-emerald-400" />
           </div>
           {!sidebarCollapsed && (
             <div className="flex flex-col min-w-0">
-              <span className="font-bold text-lg text-[#202020] dark:text-[#F5F5F5] leading-none tracking-tight truncate">
-                TailorPOS
+              <span className="font-bold text-lg text-[#202020] dark:text-[#F5F5F5] leading-none tracking-tight truncate group-hover:text-emerald-600 transition-smooth">
+                Mohit Tailoring
               </span>
               <span className="text-[11px] text-[#777777] dark:text-[#9E9E9E] mt-1 font-medium truncate">
                 Smart tailoring
@@ -104,15 +118,11 @@ export const Sidebar = () => {
               <Icon className={`w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-105 ${
                 isActive 
                   ? 'text-white dark:text-[#202020]' 
-                  : item.highlight ? 'text-amber-500' : 'text-[#777777] dark:text-[#9E9E9E] group-hover:text-[#202020] dark:group-hover:text-white'
+                  : 'text-[#777777] dark:text-[#9E9E9E] group-hover:text-[#202020] dark:group-hover:text-white'
               }`} />
               
               {!sidebarCollapsed && (
                 <span className="truncate">{item.label}</span>
-              )}
-
-              {item.highlight && !sidebarCollapsed && !isActive && (
-                <span className="ml-auto w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
               )}
             </button>
           );

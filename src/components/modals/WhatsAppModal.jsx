@@ -1,23 +1,78 @@
 import React, { useState } from 'react';
-import { X, Send, Copy, Check, MessageSquare } from 'lucide-react';
+import { X, Send, Copy, Check, MessageSquare, ExternalLink, Loader2 } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
+import { useModalDismiss } from '../../utils/modalUtils';
+import { Modal } from '../common/Modal';
+import { normalizeWhatsAppPhone } from '../../utils/phoneUtils';
+import { messagingService } from '../../services/messaging';
 
-export const WhatsAppModal = ({ invoice, onClose }) => {
-  const { settings, showToast } = useShop();
+export const WhatsAppModal = ({ invoice, type = 'INVOICE', onClose }) => {
+  const { settings, showToast, userRole, hasWorkerPermission } = useShop();
   const [copied, setCopied] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+
+  useModalDismiss(onClose, Boolean(invoice));
 
   if (!invoice) return null;
 
-  const formattedPhone = invoice.phone.startsWith('+91') ? invoice.phone : `+91${invoice.phone}`;
+  const recipientNumber = normalizeWhatsAppPhone(invoice.phone);
+  const formattedDisplayPhone = invoice.phone.startsWith('+91') ? invoice.phone : `+91 ${invoice.phone}`;
 
-  const messageText = `*${settings.shopName.toUpperCase()}*
+  let headerTitle = "Send Invoice via WhatsApp";
+  let messageText = "";
+
+  if (type === 'ORDER_READY') {
+    headerTitle = "Send Order-Ready Notification";
+    messageText = `*${settings.shopName.toUpperCase()}*
+🎉 *YOUR ORDER IS READY FOR PICKUP!*
+
+Dear ${invoice.customerName},
+Good news! Your tailoring order *${invoice.id}* is fully completed and packed.
+
+📋 *Order Details:*
+• Garment: ${invoice.garmentType || 'Custom Stitching'}
+${(invoice.services || []).map(s => `• ${s.name} - ₹${s.amount}`).join('\n')}
+
+💰 *Payment Details:*
+• Total: ₹${invoice.total}
+• Balance Due: *₹${invoice.balance}*
+
+📍 *Pick Up Address:* ${settings.address}
+📞 *Shop Contact:* ${settings.phone}
+
+Please visit our shop to collect your completed order. Thank you!`;
+  } else if (type === 'RECEIPT') {
+    headerTitle = "Send Payment Receipt via WhatsApp";
+    messageText = `*${settings.shopName.toUpperCase()}*
+🧾 *PAYMENT RECEIPT ACKNOWLEDGEMENT*
+
+Dear ${invoice.customerName},
+Thank you for your payment towards order *${invoice.id}*.
+
+💰 *Payment Breakdown:*
+• Total Amount: ₹${invoice.total}
+• Amount Paid: ₹${invoice.advancePaid} (${invoice.paymentMode || 'Cash'})
+• *Remaining Balance: ₹${invoice.balance}*
+
+📅 *Delivery Date:* ${invoice.dueDate}
+📍 *Shop Address:* ${settings.address}
+
+Thank you for choosing ${settings.shopName}!`;
+  } else {
+    // Default INVOICE
+    headerTitle = "Send Invoice via WhatsApp";
+    messageText = `*${settings.shopName.toUpperCase()}*
 Receipt & Order Update
 
 Dear ${invoice.customerName},
 Your tailoring order *${invoice.id}* has been generated.
 
+👗 *Garment & Material:*
+• Garment: ${invoice.garmentType || 'Custom Tailoring'}
+• Material: ${invoice.material || 'Customer Fabric'}
+
 📋 *Order Details:*
-${invoice.services.map(s => `• ${s.name} x${s.qty} - ₹${s.amount}`).join('\n')}
+${(invoice.services || []).map(s => `• ${s.name} x${s.qty} - ₹${s.amount}`).join('\n')}
 
 💰 *Payment Summary:*
 • Total: ₹${invoice.total}
@@ -29,6 +84,7 @@ ${invoice.services.map(s => `• ${s.name} x${s.qty} - ₹${s.amount}`).join('\n
 
 Thank you for choosing us!
 Reply to this message for any queries.`;
+  }
 
   const handleCopy = () => {
     navigator.clipboard.writeText(messageText);
@@ -37,17 +93,60 @@ Reply to this message for any queries.`;
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleOpenWhatsApp = () => {
+  const handleSendCloudApi = async () => {
+    if (isSending) return;
+
+    if (!hasWorkerPermission('SEND_WHATSAPP')) {
+      showToast("Access Restricted", "Your account does not have SEND_WHATSAPP permission.", "warning");
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      const res = await messagingService.sendNotification({
+        shopId: invoice.shop_id || 'a1000000-0000-0000-0000-000000000001',
+        customerId: invoice.customerId,
+        orderId: invoice.dbId || invoice.id,
+        type: type,
+        recipient: recipientNumber,
+        message: messageText
+      });
+
+      if (res?.success) {
+        if (res.mode === 'demo') {
+          showToast("Demo Mode Active", "WhatsApp Cloud API secrets unconfigured. Launching manual chat.", "info");
+          handleOpenManualWhatsApp();
+        } else {
+          showToast("Message Dispatched", `Official WhatsApp message sent to ${invoice.customerName} (${recipientNumber})`, "success");
+          onClose();
+        }
+      } else {
+        showToast("Messaging Error", res.error || "Failed to send WhatsApp message via Cloud API.", "error");
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("Dispatch Error", "Failed to connect to WhatsApp Cloud API.", "error");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleOpenManualWhatsApp = () => {
     const encodedMessage = encodeURIComponent(messageText);
-    const waUrl = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedMessage}`;
+    const waUrl = `https://api.whatsapp.com/send?phone=${recipientNumber}&text=${encodedMessage}`;
     window.open(waUrl, '_blank');
-    showToast("WhatsApp Launched", `Opening WhatsApp chat with ${invoice.customerName}`, "success");
+    showToast("WhatsApp Opened", `Opened manual WhatsApp chat with ${invoice.customerName}`, "info");
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
-      <div className="relative w-full max-w-lg bg-white dark:bg-[#1E1E1E] rounded-3xl shadow-2xl border border-[#E3E3E3] dark:border-[#333333] overflow-hidden flex flex-col">
+    <Modal
+      isOpen={Boolean(invoice)}
+      onClose={onClose}
+      size="sm"
+      maxWidthClass="max-w-lg"
+      zIndex={9990}
+    >
         
         {/* Modal Header */}
         <div className="p-5 bg-emerald-600 text-white flex items-center justify-between">
@@ -56,13 +155,13 @@ Reply to this message for any queries.`;
               <MessageSquare className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h3 className="font-bold text-base">Send Invoice via WhatsApp</h3>
-              <p className="text-xs opacity-90">Customer: {invoice.customerName} ({formattedPhone})</p>
+              <h3 className="font-bold text-base">{headerTitle}</h3>
+              <p className="text-xs opacity-90">Customer: {invoice.customerName} ({formattedDisplayPhone})</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-xl hover:bg-white/20 text-white transition-smooth"
+            className="p-2 rounded-xl hover:bg-white/20 text-white transition-smooth cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -79,9 +178,17 @@ Reply to this message for any queries.`;
             </div>
           </div>
 
-          <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40 flex items-center gap-3 text-emerald-800 dark:text-emerald-300 text-xs">
-            <Send className="w-4 h-4 shrink-0 text-emerald-600" />
-            <span>This will open WhatsApp Web or Desktop App with the customer phone pre-filled.</span>
+          <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40 flex items-center justify-between gap-3 text-emerald-800 dark:text-emerald-300 text-xs">
+            <div className="flex items-center gap-2">
+              <Send className="w-4 h-4 shrink-0 text-emerald-600" />
+              <span>Sends official Meta Cloud API message & logs notification status.</span>
+            </div>
+            <button
+              onClick={handleOpenManualWhatsApp}
+              className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 hover:underline shrink-0 flex items-center gap-1 cursor-pointer"
+            >
+              Manual Chat <ExternalLink className="w-3 h-3" />
+            </button>
           </div>
         </div>
 
@@ -89,7 +196,7 @@ Reply to this message for any queries.`;
         <div className="p-4 border-t border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between gap-3">
           <button
             onClick={handleCopy}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#E3E3E3] dark:border-[#333333] font-semibold text-xs text-[#202020] dark:text-white hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#E3E3E3] dark:border-[#333333] font-semibold text-xs text-[#202020] dark:text-white hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth cursor-pointer"
           >
             {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
             {copied ? "Copied!" : "Copy Text"}
@@ -98,21 +205,29 @@ Reply to this message for any queries.`;
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl font-semibold text-xs text-[#777777] hover:text-[#202020]"
+              className="px-4 py-2.5 rounded-xl font-semibold text-xs text-[#777777] hover:text-[#202020] cursor-pointer"
             >
               Close
             </button>
             <button
-              onClick={handleOpenWhatsApp}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-smooth"
+              onClick={handleSendCloudApi}
+              disabled={isSending}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs shadow-md transition-smooth cursor-pointer"
             >
-              <Send className="w-4 h-4" />
-              Launch WhatsApp Demo
+              {isSending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Dispatching...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4" />
+                  Send Official WhatsApp
+                </>
+              )}
             </button>
           </div>
         </div>
-
-      </div>
-    </div>
+    </Modal>
   );
 };

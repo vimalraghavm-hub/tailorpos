@@ -13,6 +13,8 @@ import {
   X
 } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
+import { isPhoneMatch } from '../../utils/phoneUtils';
+import { AuthModal } from '../modals/AuthModal';
 
 export const Header = () => {
   const { 
@@ -25,7 +27,13 @@ export const Header = () => {
     setMobileMenuOpen,
     invoices,
     customers,
-    navigateTo
+    openCustomerProfile,
+    navigateTo,
+    userProfile,
+    userRole,
+    showAuthModal,
+    setShowAuthModal,
+    dbConnectionError
   } = useShop();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -41,14 +49,14 @@ export const Header = () => {
     ? invoices.filter(i => 
         i.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
         i.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        i.phone.includes(searchQuery)
+        isPhoneMatch(searchQuery, i.phone)
       ).slice(0, 4)
     : [];
 
   const filteredCustomers = searchQuery.trim()
     ? customers.filter(c =>
         c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.phone.includes(searchQuery)
+        isPhoneMatch(searchQuery, c.phone)
       ).slice(0, 4)
     : [];
 
@@ -66,8 +74,21 @@ export const Header = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return "Good morning, Owner";
+    if (hour >= 12 && hour < 17) return "Good afternoon, Owner";
+    if (hour >= 17 && hour < 21) return "Good evening, Owner";
+    return "Good night, Owner";
+  };
+
   return (
     <header className="sticky top-0 z-20 bg-[#F5F5F5]/90 dark:bg-[#141414]/90 backdrop-blur-md border-b border-[#E3E3E3] dark:border-[#333333] px-4 md:px-8 py-4 transition-smooth">
+      {dbConnectionError && (
+        <div className="mb-3 p-3 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-300 text-xs font-bold flex items-center justify-between gap-2">
+          <span>⚠️ {dbConnectionError}</span>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-4">
         
         {/* Mobile Menu Trigger & Title / Greeting */}
@@ -81,7 +102,7 @@ export const Header = () => {
 
           <div>
             <h1 className="text-xl md:text-2xl font-bold text-[#202020] dark:text-[#F5F5F5] tracking-tight">
-              Good morning, Owner 👋
+              {getGreeting()} 👋
             </h1>
             <p className="text-xs md:text-sm text-[#777777] dark:text-[#9E9E9E] mt-0.5">
               Here's what's happening in your shop today.
@@ -153,19 +174,20 @@ export const Header = () => {
                       <button
                         key={cust.id}
                         onClick={() => {
-                          navigateTo('measurements', { customerId: cust.id });
+                          openCustomerProfile(cust.id);
                           setSearchFocused(false);
+                          setSearchQuery('');
                         }}
-                        className="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-[#F5F5F5] dark:hover:bg-[#282828] text-left transition-smooth"
+                        className="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-[#F5F5F5] dark:hover:bg-[#282828] text-left transition-smooth cursor-pointer"
                       >
                         <div className="flex items-center gap-2">
                           <Users className="w-4 h-4 text-[#777777]" />
                           <div>
                             <span className="font-semibold text-xs text-[#202020] dark:text-white block">{cust.name}</span>
-                            <span className="text-[11px] text-[#777777]">{cust.phone}</span>
+                            <span className="text-[11px] text-[#777777] font-mono">{cust.phone}</span>
                           </div>
                         </div>
-                        <span className="text-[11px] text-emerald-600 font-medium">{cust.totalOrders} orders</span>
+                        <span className="text-[11px] text-emerald-600 font-medium">{cust.totalOrders || 0} orders</span>
                       </button>
                     ))}
                   </div>
@@ -177,11 +199,18 @@ export const Header = () => {
           {/* Theme Toggle */}
           <button
             onClick={toggleTheme}
-            className="w-10 h-10 rounded-xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] flex items-center justify-center text-[#202020] dark:text-white hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth"
-            title={`Switch to ${theme === 'light' ? 'Dark' : 'Light'} mode`}
+            className="w-10 h-10 rounded-xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] flex items-center justify-center text-[#202020] dark:text-white hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth cursor-pointer"
+            title={`Current Theme: ${theme.toUpperCase()}. Click to switch theme.`}
           >
-            {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+            {theme === 'light' ? (
+              <Moon className="w-4 h-4" />
+            ) : theme === 'dark' ? (
+              <div className="w-4 h-4 rounded-full bg-[#650A35] border border-white/60" />
+            ) : (
+              <Sun className="w-4 h-4 text-amber-500" />
+            )}
           </button>
+
 
           {/* Notifications Popover */}
           <div className="relative" ref={notifRef}>
@@ -226,23 +255,31 @@ export const Header = () => {
             )}
           </div>
 
-          {/* Profile Card */}
+          {/* Profile Card & Auth Trigger */}
           <div 
-            onClick={() => navigateTo('settings')}
-            className="flex items-center gap-3 pl-2 pr-3 py-1.5 rounded-xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] cursor-pointer hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth select-none"
+            onClick={() => setShowAuthModal(true)}
+            className="flex items-center gap-2.5 pl-2 pr-3 py-1.5 rounded-xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] cursor-pointer hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth select-none"
+            title="Account & Role Management Portal"
           >
-            <div className="w-8 h-8 rounded-lg bg-[#202020] text-white flex items-center justify-center text-xs font-bold">
-              MT
+            <div className="w-8 h-8 rounded-lg bg-[#202020] text-white flex items-center justify-center text-xs font-bold shrink-0">
+              {userProfile ? userProfile.full_name.slice(0, 2).toUpperCase() : 'MT'}
             </div>
-            <div className="hidden lg:flex flex-col">
-              <span className="text-xs font-bold text-[#202020] dark:text-white leading-tight">Mohit Tailors</span>
-              <span className="text-[10px] text-[#777777]">Main Shop</span>
+            <div className="hidden sm:flex flex-col">
+              <span className="text-xs font-bold text-[#202020] dark:text-white leading-tight flex items-center gap-1">
+                {userProfile ? userProfile.full_name : 'Mohit Owner'}
+              </span>
+              <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">
+                {userRole} Mode
+              </span>
             </div>
           </div>
 
         </div>
 
       </div>
+
+      {/* Auth Modal */}
+      <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </header>
   );
 };

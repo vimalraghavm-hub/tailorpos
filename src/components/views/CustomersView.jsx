@@ -16,10 +16,9 @@ import { useShop } from '../../context/ShopContext';
 import { CustomerModal } from '../modals/CustomerModal';
 
 export const CustomersView = () => {
-  const { customers, invoices, navigateTo } = useShop();
+  const { customers, openCustomerProfile } = useShop();
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCustForDrawer, setSelectedCustForDrawer] = useState(null);
   const [showAddCustModal, setShowAddCustModal] = useState(false);
 
   const filteredCustomers = customers.filter(c => 
@@ -37,7 +36,7 @@ export const CustomersView = () => {
             Customer Directory & Ledger
           </h2>
           <p className="text-xs text-[#777777] mt-1">
-            Manage shop clients, view lifetime spend, outstanding dues, and order histories.
+            Manage shop clients, view lifetime spend, outstanding dues, body measurements, and order histories.
           </p>
         </div>
 
@@ -45,7 +44,7 @@ export const CustomersView = () => {
           onClick={() => setShowAddCustModal(true)}
           className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#202020] dark:bg-white text-white dark:text-[#202020] font-bold text-xs hover:opacity-90 shadow-xs transition-smooth"
         >
-          <UserPlus className="w-4 h-4" /> Add New Customer
+          <UserPlus className="w-4 h-4 text-emerald-400 dark:text-emerald-600" /> Add New Customer
         </button>
       </div>
 
@@ -74,7 +73,7 @@ export const CustomersView = () => {
                 <th className="py-3 px-4">Total Orders</th>
                 <th className="py-3 px-4">Total Spent</th>
                 <th className="py-3 px-4">Outstanding Balance</th>
-                <th className="py-3 px-4">Last Order</th>
+                <th className="py-3 px-4">Last Order Date</th>
                 <th className="py-3 px-4 text-right">Action</th>
               </tr>
             </thead>
@@ -82,7 +81,7 @@ export const CustomersView = () => {
               {filteredCustomers.map((cust) => (
                 <tr 
                   key={cust.id}
-                  onClick={() => setSelectedCustForDrawer(cust)}
+                  onClick={() => openCustomerProfile(cust.id)}
                   className="hover:bg-[#F5F5F5] dark:hover:bg-[#282828] cursor-pointer transition-smooth group"
                 >
                   <td className="py-3.5 px-4 font-bold text-[#202020] dark:text-white">
@@ -92,25 +91,32 @@ export const CustomersView = () => {
                       </div>
                       <div>
                         <span className="block font-bold">{cust.name}</span>
-                        <span className="text-[10px] text-[#777777] font-normal">{cust.address}</span>
+                        <span className="text-[10px] text-[#777777] font-normal">{cust.address || 'Local Customer'}</span>
                       </div>
                     </div>
                   </td>
                   <td className="py-3.5 px-4 font-mono text-[#777777] dark:text-[#9E9E9E]">{cust.phone}</td>
-                  <td className="py-3.5 px-4 font-bold text-[#202020] dark:text-white">{cust.totalOrders} orders</td>
-                  <td className="py-3.5 px-4 font-bold text-[#202020] dark:text-white">₹{cust.totalSpent.toLocaleString('en-IN')}</td>
+                  <td className="py-3.5 px-4 font-bold text-[#202020] dark:text-white">{cust.totalOrders || 0} orders</td>
+                  <td className="py-3.5 px-4 font-bold text-[#202020] dark:text-white">₹{(cust.totalSpent || 0).toLocaleString('en-IN')}</td>
                   <td className="py-3.5 px-4 font-bold">
                     {cust.outstanding > 0 ? (
                       <span className="text-[#B85C5C]">₹{cust.outstanding.toLocaleString('en-IN')}</span>
                     ) : (
-                      <span className="text-[#5F8F68]">₹0 (Cleared)</span>
+                      <span className="text-emerald-600">₹0 (Cleared)</span>
                     )}
                   </td>
-                  <td className="py-3.5 px-4 text-[#777777]">{cust.lastOrder}</td>
+                  <td className="py-3.5 px-4 text-[#777777]">{cust.lastOrder || 'N/A'}</td>
                   <td className="py-3.5 px-4 text-right">
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#777777] group-hover:text-[#202020] dark:group-hover:text-white">
-                      Profile <ChevronRight className="w-4 h-4" />
-                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openCustomerProfile(cust.id);
+                      }}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-[#777777] group-hover:text-[#202020] dark:group-hover:text-white hover:underline cursor-pointer"
+                    >
+                      View Profile <ChevronRight className="w-4 h-4" />
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -119,125 +125,11 @@ export const CustomersView = () => {
         </div>
       </div>
 
-      {/* CUSTOMER DETAIL PROFILE DRAWER */}
-      {selectedCustForDrawer && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div 
-            className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
-            onClick={() => setSelectedCustForDrawer(null)}
-          />
-
-          <div className="relative w-full max-w-md h-full bg-white dark:bg-[#1E1E1E] shadow-2xl border-l border-[#E3E3E3] dark:border-[#333333] z-10 flex flex-col animate-fade-in overflow-y-auto p-6 space-y-6">
-            
-            {/* Drawer Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-[#E3E3E3] dark:border-[#333333]">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-[#202020] text-white flex items-center justify-center font-bold text-base">
-                  {selectedCustForDrawer.name.slice(0, 2).toUpperCase()}
-                </div>
-                <div>
-                  <h3 className="font-bold text-lg text-[#202020] dark:text-white leading-tight">
-                    {selectedCustForDrawer.name}
-                  </h3>
-                  <p className="text-xs text-[#777777] font-mono">{selectedCustForDrawer.phone}</p>
-                </div>
-              </div>
-
-              <button 
-                onClick={() => setSelectedCustForDrawer(null)}
-                className="p-2 rounded-xl hover:bg-[#EEEEEE] text-[#777777]"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Quick Metrics */}
-            <div className="grid grid-cols-3 gap-2">
-              <div className="p-3 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] text-center space-y-1">
-                <span className="text-[10px] font-bold text-[#777777] uppercase">Orders</span>
-                <span className="font-bold text-base text-[#202020] dark:text-white block">
-                  {selectedCustForDrawer.totalOrders}
-                </span>
-              </div>
-
-              <div className="p-3 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] text-center space-y-1">
-                <span className="text-[10px] font-bold text-[#777777] uppercase">Spent</span>
-                <span className="font-bold text-base text-emerald-600 block">
-                  ₹{selectedCustForDrawer.totalSpent}
-                </span>
-              </div>
-
-              <div className="p-3 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] text-center space-y-1">
-                <span className="text-[10px] font-bold text-[#777777] uppercase">Due</span>
-                <span className="font-bold text-base text-[#B85C5C] block">
-                  ₹{selectedCustForDrawer.outstanding}
-                </span>
-              </div>
-            </div>
-
-            {/* Address & Notes */}
-            <div className="space-y-2 text-xs">
-              <div className="flex items-start gap-2 text-[#777777]">
-                <MapPin className="w-4 h-4 shrink-0 mt-0.5" />
-                <span className="text-[#202020] dark:text-white">{selectedCustForDrawer.address}</span>
-              </div>
-              <div className="p-3 rounded-2xl bg-[#EEEEEE]/60 dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333]">
-                <span className="text-[10px] font-bold uppercase text-[#777777] block mb-1">Fitting Preference</span>
-                <p className="text-[#202020] dark:text-white">{selectedCustForDrawer.notes || "Standard fitting."}</p>
-              </div>
-            </div>
-
-            {/* Saved Measurements Preview */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-[#777777] uppercase tracking-wider">
-                  Saved Measurements
-                </span>
-                <button
-                  onClick={() => {
-                    navigateTo('measurements', { customerId: selectedCustForDrawer.id });
-                    setSelectedCustForDrawer(null);
-                  }}
-                  className="text-xs font-bold text-emerald-600 hover:underline"
-                >
-                  View Full Profile →
-                </button>
-              </div>
-
-              <div className="p-3 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] text-xs font-mono space-y-1">
-                <div className="flex justify-between text-[#777777]">
-                  <span>Shirt Length / Chest:</span>
-                  <span className="font-bold text-[#202020] dark:text-white">
-                    {selectedCustForDrawer.measurements?.shirt?.length} / {selectedCustForDrawer.measurements?.shirt?.chest}
-                  </span>
-                </div>
-                <div className="flex justify-between text-[#777777]">
-                  <span>Pant Length / Waist:</span>
-                  <span className="font-bold text-[#202020] dark:text-white">
-                    {selectedCustForDrawer.measurements?.pant?.length} / {selectedCustForDrawer.measurements?.pant?.waist}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Action button */}
-            <button
-              onClick={() => {
-                navigateTo('new-invoice', { customerId: selectedCustForDrawer.id });
-                setSelectedCustForDrawer(null);
-              }}
-              className="w-full py-3.5 rounded-2xl bg-[#202020] dark:bg-white text-white dark:text-[#202020] font-bold text-xs hover:opacity-90 shadow-md flex items-center justify-center gap-2"
-            >
-              <PlusCircle className="w-4 h-4 text-emerald-400 dark:text-emerald-600" />
-              Create New Invoice for {selectedCustForDrawer.name}
-            </button>
-
-          </div>
-        </div>
-      )}
-
       {showAddCustModal && (
-        <CustomerModal onClose={() => setShowAddCustModal(false)} />
+        <CustomerModal 
+          onClose={() => setShowAddCustModal(false)}
+          onCustomerCreated={(newCust) => openCustomerProfile(newCust.id)}
+        />
       )}
 
     </div>

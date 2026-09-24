@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+@custom-variant maroon (&:where(.maroon, .maroon *));
+
 @theme {
   --color-primary-dark: #202020;
   --color-main-bg: #F5F5F5;
@@ -33,6 +36,15 @@
     --text-secondary: #9E9E9E;
   }
 
+  .maroon {
+    --bg-main: #FAF8F8;
+    --bg-card: #FFFFFF;
+    --bg-surface: #F5EDEF;
+    --border-color: #E5D7DD;
+    --text-primary: #241B20;
+    --text-secondary: #746A70;
+  }
+
   body {
     background-color: var(--bg-main);
     color: var(--text-primary);
@@ -42,6 +54,74 @@
     overflow-x: hidden;
   }
 }
+
+/* MAROON LIGHT THEME GLOBAL OVERRIDES */
+html.maroon, 
+html.maroon body {
+  background-color: #FAF8F8 !important;
+  color: #241B20 !important;
+}
+
+html.maroon header {
+  background-color: rgba(250, 248, 248, 0.92) !important;
+  border-color: #E5D7DD !important;
+}
+
+html.maroon aside,
+html.maroon aside > div {
+  background-color: #FFFFFF !important;
+  border-color: #E5D7DD !important;
+}
+
+html.maroon .bg-white {
+  background-color: #FFFFFF !important;
+}
+
+html.maroon .bg-\[\#F5F5F5\],
+html.maroon .bg-\[\#F5F5F5\]\/60,
+html.maroon .bg-\[\#F5F5F5\]\/50,
+html.maroon .bg-\[\#EEEEEE\] {
+  background-color: #F5EDEF !important;
+}
+
+html.maroon .bg-\[\#202020\] {
+  background-color: #650A35 !important;
+  color: #FFFFFF !important;
+}
+
+html.maroon button.bg-\[\#202020\]:hover,
+html.maroon a.bg-\[\#202020\]:hover,
+html.maroon .bg-\[\#202020\]:hover {
+  background-color: #4A0627 !important;
+}
+
+html.maroon .border-\[\#E3E3E3\],
+html.maroon .border-\[\#E3E3E3\]\/30 {
+  border-color: #E5D7DD !important;
+}
+
+html.maroon .text-\[\#202020\] {
+  color: #241B20 !important;
+}
+
+html.maroon .text-\[\#777777\] {
+  color: #746A70 !important;
+}
+
+html.maroon input,
+html.maroon select,
+html.maroon textarea {
+  background-color: #F5EDEF !important;
+  color: #241B20 !important;
+  border-color: #E5D7DD !important;
+}
+
+html.maroon input:focus,
+html.maroon select:focus,
+html.maroon textarea:focus {
+  border-color: #650A35 !important;
+}
+
 
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
@@ -77,8 +157,43 @@
   animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+@keyframes backdropFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modalSlideUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-backdrop-in {
+  animation: backdropFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-modal-in {
+  animation: modalSlideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
 /* Print specific styles for invoice thermal/A4 printing */
 @media print {
+  @page {
+    size: auto;
+    margin: 5mm;
+  }
+  body, html {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .no-print,
+  header,
+  aside,
+  .no-print-backdrop,
+  nav {
+    display: none !important;
+  }
   body * {
     visibility: hidden;
   }
@@ -89,12 +204,15 @@
     position: absolute;
     left: 0;
     top: 0;
-    width: 100%;
-    background: #fff !important;
-    color: #000 !important;
-    padding: 20px;
-    margin: 0;
+    width: 100% !important;
+    max-width: 800px !important;
+    margin: 0 auto !important;
+    padding: 10px !important;
     box-shadow: none !important;
     border: none !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 }
