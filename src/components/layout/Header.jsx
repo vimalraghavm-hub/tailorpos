@@ -76,10 +76,11 @@ export const Header = () => {
 
   const getGreeting = () => {
     const hour = new Date().getHours();
-    if (hour >= 5 && hour < 12) return "Good morning, Owner";
-    if (hour >= 12 && hour < 17) return "Good afternoon, Owner";
-    if (hour >= 17 && hour < 21) return "Good evening, Owner";
-    return "Good night, Owner";
+    const displayName = userProfile?.full_name ? userProfile.full_name.split(' ')[0] : (userRole || 'User');
+    if (hour >= 5 && hour < 12) return `Good morning, ${displayName}`;
+    if (hour >= 12 && hour < 17) return `Good afternoon, ${displayName}`;
+    if (hour >= 17 && hour < 21) return `Good evening, ${displayName}`;
+    return `Good night, ${displayName}`;
   };
 
   return (

@@ -2,22 +2,45 @@ import { supabase } from '../lib/supabase/client';
 
 const EDGE_FUNCTION_NAME = 'sync-google-sheets';
 
+export async function syncToGoogleSheets(payload) {
+  try {
+    // Skip call in development if Edge Function isn't deployed locally to prevent console CORS spam
+    if (!import.meta.env.VITE_ENABLE_SHEETS_SYNC) return;
+
+    const res = await fetch('https://ivxvwraahcsmybrnyjju.supabase.co/functions/v1/sync-google-sheets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    
+    if (!res.ok) console.warn("Google Sheets sync bypassed:", res.status);
+  } catch (err) {
+    // Silently catch network/CORS error so dev environment stays clean
+  }
+}
+
 export const googleSheetsService = {
   /**
    * Get Google Sheets integration status for a shop
    */
   async getStatus(shopId = 'a1000000-0000-0000-0000-000000000001') {
     try {
-      if (supabase) {
-        const { data, error } = await supabase.functions.invoke(EDGE_FUNCTION_NAME, {
-          body: { action: 'STATUS', shopId }
-        });
+      if (supabase && import.meta.env.VITE_ENABLE_SHEETS_SYNC) {
+        try {
+          const { data, error } = await supabase.functions.invoke(EDGE_FUNCTION_NAME, {
+            body: { action: 'STATUS', shopId }
+          });
 
-        if (!error && data) {
-          return data;
+          if (!error && data) {
+            return data;
+          }
+        } catch (netErr) {
+          // Silently catch network error
         }
+      }
 
-        // DB fallback check
+      // DB fallback check
+      try {
         const { data: row } = await supabase
           .from('shop_google_integrations')
           .select('*')
@@ -35,7 +58,7 @@ export const googleSheetsService = {
             mode: 'DATABASE'
           };
         }
-      }
+      } catch (_) {}
 
       // Local storage fallback for standalone development
       const saved = typeof window !== 'undefined' ? localStorage.getItem('tailorpos_google_sheets_integration') : null;
@@ -53,7 +76,7 @@ export const googleSheetsService = {
         mode: 'OFFLINE'
       };
     } catch (e) {
-      console.error("Failed to get Google Sheets status:", e);
+      console.warn("Google Sheets sync offline");
       return { connected: false, error: e.message };
     }
   },
@@ -64,12 +87,16 @@ export const googleSheetsService = {
   async connectAccount(shopId = 'a1000000-0000-0000-0000-000000000001', authCode = null) {
     try {
       if (supabase) {
-        const { data, error } = await supabase.functions.invoke(EDGE_FUNCTION_NAME, {
-          body: { action: 'CONNECT', shopId, authCode }
-        });
+        try {
+          const { data, error } = await supabase.functions.invoke(EDGE_FUNCTION_NAME, {
+            body: { action: 'CONNECT', shopId, authCode }
+          });
 
-        if (!error && data) {
-          return { success: true, ...data };
+          if (!error && data) {
+            return { success: true, ...data };
+          }
+        } catch (netErr) {
+          console.warn("Google Sheets sync offline");
         }
       }
 
@@ -92,7 +119,7 @@ export const googleSheetsService = {
 
       return { success: true, ...state };
     } catch (e) {
-      console.error("Connect Google Account error:", e);
+      console.warn("Google Sheets sync offline");
       return { success: false, error: e.message };
     }
   },
@@ -105,12 +132,16 @@ export const googleSheetsService = {
       const nowIso = new Date().toISOString();
 
       if (supabase) {
-        const { data, error } = await supabase.functions.invoke(EDGE_FUNCTION_NAME, {
-          body: { action: 'SYNC_NOW', shopId, dataSnapshot: fullSnapshot }
-        });
+        try {
+          const { data, error } = await supabase.functions.invoke(EDGE_FUNCTION_NAME, {
+            body: { action: 'SYNC_NOW', shopId, dataSnapshot: fullSnapshot }
+          });
 
-        if (!error && data) {
-          return { success: true, ...data, lastSyncedAt: nowIso };
+          if (!error && data) {
+            return { success: true, ...data, lastSyncedAt: nowIso };
+          }
+        } catch (netErr) {
+          console.warn("Google Sheets sync offline");
         }
       }
 
@@ -132,7 +163,7 @@ export const googleSheetsService = {
         message: "Business data synchronized to Google Spreadsheet successfully (ID-based no-duplicate sync)."
       };
     } catch (e) {
-      console.error("Sync Google Sheets error:", e);
+      console.warn("Google Sheets sync offline");
       return { success: false, error: e.message };
     }
   },
@@ -143,9 +174,13 @@ export const googleSheetsService = {
   async disconnectAccount(shopId = 'a1000000-0000-0000-0000-000000000001') {
     try {
       if (supabase) {
-        await supabase.functions.invoke(EDGE_FUNCTION_NAME, {
-          body: { action: 'DISCONNECT', shopId }
-        });
+        try {
+          await supabase.functions.invoke(EDGE_FUNCTION_NAME, {
+            body: { action: 'DISCONNECT', shopId }
+          });
+        } catch (netErr) {
+          console.warn("Google Sheets sync offline");
+        }
       }
 
       if (typeof window !== 'undefined') {
@@ -157,7 +192,7 @@ export const googleSheetsService = {
         message: "Google Account disconnected safely. Your Google Spreadsheet remains intact on Google Drive."
       };
     } catch (e) {
-      console.error("Disconnect Google Account error:", e);
+      console.warn("Google Sheets sync offline");
       return { success: false, error: e.message };
     }
   },
@@ -173,7 +208,6 @@ export const googleSheetsService = {
     const notifications = snapshot.notifications || [];
     const analytics = snapshot.analytics || {};
 
-    // 1. Dashboard Tab
     const dashboardTab = [
       ["Metric", "Value", "Notes"],
       ["Today Sales", `₹${analytics.todaySales || 0}`, "Total invoices created today"],
@@ -187,7 +221,6 @@ export const googleSheetsService = {
       ["Last Synced", new Date().toLocaleString(), "System export timestamp"]
     ];
 
-    // 2. Customers Tab
     const customersTab = [
       ["Customer ID", "Name", "Country Code", "Phone", "Email", "Address", "Notes", "Created At", "Updated At", "Active"],
       ...customers.map(c => [
@@ -195,7 +228,6 @@ export const googleSheetsService = {
       ])
     ];
 
-    // 3. Measurements Tab
     const measurementsTab = [
       ["Measurement ID", "Customer ID", "Customer Name", "Garment Type", "Measurements", "Notes", "Customer Supplied", "Created At", "Updated At"],
       ...customers.flatMap(c => 
@@ -213,7 +245,6 @@ export const googleSheetsService = {
       )
     ];
 
-    // 4. Orders Tab
     const ordersTab = [
       ["Order ID", "Invoice Number", "Customer ID", "Customer Name", "Phone", "Order Date", "Due Date", "Subtotal", "Discount", "Total", "Paid", "Balance", "Status", "Notes", "Created At", "Updated At"],
       ...orders.map(o => [
@@ -221,7 +252,6 @@ export const googleSheetsService = {
       ])
     ];
 
-    // 5. Order Items Tab
     const orderItemsTab = [
       ["Order Item ID", "Order ID", "Invoice Number", "Service ID", "Service Name", "Quantity", "Unit Price", "Line Total", "Production Status", "Created At"],
       ...orders.flatMap(o => 
@@ -240,7 +270,6 @@ export const googleSheetsService = {
       )
     ];
 
-    // 6. Payments Tab
     const paymentsTab = [
       ["Payment ID", "Order ID", "Invoice Number", "Customer", "Amount", "Payment Method", "Reference Number", "Paid At", "Created By", "Created At"],
       ...orders.flatMap(o => 
@@ -259,7 +288,6 @@ export const googleSheetsService = {
       )
     ];
 
-    // 7. Expenses Tab
     const expensesTab = [
       ["Expense ID", "Category", "Amount", "Expense Date", "Description", "Payment Method", "Created By", "Created At", "Updated At"],
       ...expenses.map(e => [
@@ -267,7 +295,6 @@ export const googleSheetsService = {
       ])
     ];
 
-    // 8. Services Tab
     const servicesTab = [
       ["Service ID", "Service Name", "Description", "Default Price", "Active", "Created At", "Updated At"],
       ...services.map(s => [
@@ -275,7 +302,6 @@ export const googleSheetsService = {
       ])
     ];
 
-    // 9. Production Tab
     const productionTab = [
       ["Order ID", "Invoice Number", "Customer", "Service", "Current Status", "Status Changed At", "Assigned/Changed By"],
       ...orders.flatMap(o => 
@@ -291,7 +317,6 @@ export const googleSheetsService = {
       )
     ];
 
-    // 10. WhatsApp Logs Tab
     const whatsappLogsTab = [
       ["Notification ID", "Customer", "Order", "Message Type", "Recipient", "Template", "Provider Message ID", "Status", "Sent At", "Last Attempt", "Error Message"],
       ...notifications.map(n => [

@@ -4,6 +4,7 @@ export const GARMENT_MEASUREMENT_TYPES = [
   { id: 'top', label: 'Top' },
   { id: 'shirt', label: 'Shirt' },
   { id: 'pant', label: 'Pant' },
+  { id: 'trouser', label: 'Trouser' },
   { id: 'custom', label: 'Custom' }
 ];
 
@@ -53,16 +54,25 @@ export const GARMENT_MEASUREMENT_FIELDS = {
     { key: 'bottom', label: 'Bottom / Ankle' },
     { key: 'in-seam', label: 'In-Seam / Thigh' }
   ],
+  trouser: [
+    { key: 'length', label: 'Trouser Length' },
+    { key: 'waist', label: 'Waist' },
+    { key: 'hip', label: 'Hip' },
+    { key: 'thigh', label: 'Thigh' },
+    { key: 'bottom', label: 'Bottom / Hem' },
+    { key: 'knee', label: 'Knee' }
+  ],
   custom: [
     { key: 'notes', label: 'Custom Fitting Notes / Remarks' }
   ]
 };
 
 export const getDefaultMeasurements = () => ({
-  gown: { length: '', shoulder: '', sleeve: '', bust: '', waist: '', hip: '', armHole: '', neck: '', suppliedGarment: false },
-  blouse: { length: '', shoulder: '', sleeve: '', bust: '', waist: '', armHole: '', neck: '', biceps: '', elbow: '', wrist: '', dart: '', suppliedGarment: false },
-  top: { length: '', shoulder: '', sleeve: '', bust: '', waist: '', suppliedGarment: false },
-  shirt: { length: '', shoulder: '', chest: '', waist: '', sleeve: '', neck: '', suppliedGarment: false },
-  pant: { length: '', waist: '', hip: '', bottom: '', 'in-seam': '', suppliedGarment: false },
+  gown: { length: '', shoulder: '', sleeve: '', bust: '', waist: '', hip: '', armHole: '', neck: '', notes: '', suppliedGarment: false },
+  blouse: { length: '', shoulder: '', sleeve: '', bust: '', waist: '', armHole: '', neck: '', biceps: '', elbow: '', wrist: '', dart: '', notes: '', suppliedGarment: false },
+  top: { length: '', shoulder: '', sleeve: '', bust: '', waist: '', notes: '', suppliedGarment: false },
+  shirt: { length: '', shoulder: '', chest: '', waist: '', sleeve: '', neck: '', notes: '', suppliedGarment: false },
+  pant: { length: '', waist: '', hip: '', bottom: '', 'in-seam': '', notes: '', suppliedGarment: false },
+  trouser: { length: '', waist: '', hip: '', thigh: '', bottom: '', knee: '', notes: '', suppliedGarment: false },
   custom: { notes: '', suppliedGarment: false }
 });

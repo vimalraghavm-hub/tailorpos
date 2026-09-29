@@ -59,31 +59,9 @@ Thank you for your payment towards order *${invoice.id}*.
 
 Thank you for choosing ${settings.shopName}!`;
   } else {
-    // Default INVOICE
+    // Default INVOICE / BILL SHARE
     headerTitle = "Send Invoice via WhatsApp";
-    messageText = `*${settings.shopName.toUpperCase()}*
-Receipt & Order Update
-
-Dear ${invoice.customerName},
-Your tailoring order *${invoice.id}* has been generated.
-
-👗 *Garment & Material:*
-• Garment: ${invoice.garmentType || 'Custom Tailoring'}
-• Material: ${invoice.material || 'Customer Fabric'}
-
-📋 *Order Details:*
-${(invoice.services || []).map(s => `• ${s.name} x${s.qty} - ₹${s.amount}`).join('\n')}
-
-💰 *Payment Summary:*
-• Total: ₹${invoice.total}
-• Advance Paid: ₹${invoice.advancePaid}
-• *Balance Due: ₹${invoice.balance}*
-
-📅 *Expected Due Date:* ${invoice.dueDate}
-📍 *Shop Address:* ${settings.address}
-
-Thank you for choosing us!
-Reply to this message for any queries.`;
+    messageText = `Hello ${invoice.customerName}, your invoice #${invoice.id} from ${settings.shopName || 'Mohit Tailors'} is ready! Total: ₹${invoice.total}, Paid: ₹${invoice.advancePaid}, Balance: ₹${invoice.balance}. Delivery Date: ${invoice.dueDate}. Thank you!`;
   }
 
   const handleCopy = () => {
@@ -132,8 +110,10 @@ Reply to this message for any queries.`;
   };
 
   const handleOpenManualWhatsApp = () => {
+    const cleanDigits = String(invoice.phone || '').replaceAll(/\D/g, '');
+    const customerPhone = cleanDigits.length === 10 ? `91${cleanDigits}` : cleanDigits;
     const encodedMessage = encodeURIComponent(messageText);
-    const waUrl = `https://api.whatsapp.com/send?phone=${recipientNumber}&text=${encodedMessage}`;
+    const waUrl = `https://wa.me/${customerPhone}?text=${encodedMessage}`;
     window.open(waUrl, '_blank');
     showToast("WhatsApp Opened", `Opened manual WhatsApp chat with ${invoice.customerName}`, "info");
     onClose();

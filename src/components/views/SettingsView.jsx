@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { 
   Store, 
   FileText, 
@@ -25,7 +26,8 @@ import {
   FileSpreadsheet,
   ExternalLink,
   Unlink,
-  CheckCircle2
+  CheckCircle2,
+  Download
 } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
 import { WorkflowEditorModal } from '../modals/WorkflowEditorModal';
@@ -45,6 +47,8 @@ export const SettingsView = () => {
     productionStatuses, 
     addProductionStatus, 
     deleteProductionStatus,
+    customers = [],
+    invoices = [],
     expenses,
     expenseCategories,
     addExpense,
@@ -56,13 +60,51 @@ export const SettingsView = () => {
     connectGoogleAccount,
     syncGoogleSheetsNow,
     disconnectGoogleAccount,
-    showToast 
+    showToast,
+    measurementTemplates = [],
+    saveMeasurementTemplate,
+    renameMeasurementTemplate,
+    toggleTemplateActive,
+    deactivateTemplateField,
+    addTemplateField,
+    deleteTemplate
   } = useShop();
 
   const [isSyncing, setIsSyncing] = useState(false);
 
   const [shopName, setShopName] = useState(settings.shopName);
   const [phone, setPhone] = useState(settings.phone);
+
+  // Measurement Templates state
+  const [showAddTemplateForm, setShowAddTemplateForm] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const [newTemplateCategory, setNewTemplateCategory] = useState('Women');
+  const [editingTemplateId, setEditingTemplateId] = useState(null);
+  const [editTemplateName, setEditTemplateName] = useState('');
+
+  // Inline field creation state per template
+  const [activeFieldTmplId, setActiveFieldTmplId] = useState(null);
+  const [addFieldLabel, setAddFieldLabel] = useState('');
+  const [addFieldUnit, setAddFieldUnit] = useState('inches');
+
+  const handleCreateTemplate = async (e) => {
+    e.preventDefault();
+    if (!newTemplateName.trim()) return;
+    const res = await saveMeasurementTemplate({
+      name: newTemplateName.trim(),
+      category: newTemplateCategory,
+      fields: [
+        { label: 'Length', key: 'length', unit: 'inches', type: 'number', required: false, sortOrder: 1 },
+        { label: 'Chest / Bust', key: 'chest', unit: 'inches', type: 'number', required: false, sortOrder: 2 },
+        { label: 'Waist', key: 'waist', unit: 'inches', type: 'number', required: false, sortOrder: 3 },
+        { label: 'Notes', key: 'notes', unit: '', type: 'text', required: false, sortOrder: 4 }
+      ]
+    });
+    if (res?.success !== false) {
+      setNewTemplateName('');
+      setShowAddTemplateForm(false);
+    }
+  };
   const [address, setAddress] = useState(settings.address);
   const [gstNumber, setGstNumber] = useState(settings.gstNumber);
   const [invoicePrefix, setInvoicePrefix] = useState(settings.invoicePrefix);
@@ -114,6 +156,107 @@ export const SettingsView = () => {
   useEffect(() => {
     fetchNotifLogs();
   }, []);
+
+  const handleExportCustomersAndOrders = () => {
+    try {
+      showToast("Preparing Export", "Gathering customers and orders data...", "info");
+
+      const customerRows = (customers || []).map(c => {
+        let measSummary = '';
+        if (c.measurements && typeof c.measurements === 'object') {
+          const parts = [];
+          Object.entries(c.measurements).forEach(([garment, val]) => {
+            if (val && typeof val === 'object') {
+              const subStr = Object.entries(val)
+                .filter(([k, v]) => k !== 'suppliedGarment' && v && String(v).trim() !== '' && String(v).trim() !== '-')
+                .map(([k, v]) => `${k}: ${v}`)
+                .join(', ');
+              if (subStr) parts.push(`${garment.toUpperCase()} (${subStr})`);
+            }
+          });
+          measSummary = parts.join(' | ');
+        }
+
+        return {
+          'Customer Name': c.name || 'N/A',
+          'Phone Number': c.phone || 'N/A',
+          'Address': c.address || '',
+          'Measurements Summary': measSummary || 'None',
+          'Custom Notes': c.notes || '',
+          'Total Orders': c.totalOrders || 0,
+          'Total Spent (₹)': c.totalSpent || 0,
+          'Outstanding Balance (₹)': c.outstanding || 0,
+          'Last Order Date': c.lastOrder || 'N/A',
+          'Created At': c.created_at ? new Date(c.created_at).toLocaleDateString() : 'N/A'
+        };
+      });
+
+      const orderRows = (invoices || []).map(inv => {
+        const servicesList = (inv.services || []).map(s => s.name || s.service_name_snapshot).filter(Boolean).join(', ');
+        return {
+          'Invoice #': inv.id,
+          'Customer Name': inv.customerName || 'N/A',
+          'Customer Phone': inv.phone || 'N/A',
+          'Order Date': inv.date || 'N/A',
+          'Due Date': inv.dueDate || 'N/A',
+          'Total Amount (₹)': inv.total || 0,
+          'Advance Paid (₹)': inv.advancePaid || 0,
+          'Balance Amount (₹)': inv.balance || 0,
+          'Payment Status': inv.balance === 0 ? 'PAID' : (inv.advancePaid > 0 ? 'PARTIALLY PAID' : 'UNPAID'),
+          'Delivery Status': inv.status || 'PENDING',
+          'Services Summary': servicesList || 'Custom Stitching',
+          'Notes': inv.notes || ''
+        };
+      });
+
+      const wb = XLSX.utils.book_new();
+      const wsCustomers = XLSX.utils.json_to_sheet(customerRows);
+      const wsOrders = XLSX.utils.json_to_sheet(orderRows);
+
+      XLSX.utils.book_append_sheet(wb, wsCustomers, "Customers Ledger");
+      XLSX.utils.book_append_sheet(wb, wsOrders, "Orders Summary");
+
+      const fileName = `Mohit_Tailoring_Customers_Orders_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      showToast("Export Complete", `Saved ${fileName}`, "success");
+    } catch (err) {
+      console.error("Export error:", err);
+      showToast("Export Failed", err.message || "Failed to generate Excel file", "error");
+    }
+  };
+
+  const handleExportExpenses = () => {
+    try {
+      showToast("Preparing Export", "Gathering expenses data...", "info");
+
+      const expRows = (expenses || []).map(e => {
+        const catObj = (expenseCategories || []).find(c => c.id === e.category_id || c.name === e.category_id);
+        const catName = e.expense_categories?.name || catObj?.name || 'General';
+
+        return {
+          'Expense ID': e.id,
+          'Category Name': catName,
+          'Amount (₹)': e.amount || 0,
+          'Payment Method': e.payment_method || 'CASH',
+          'Expense Date': e.expense_date || 'N/A',
+          'Description': e.description || '',
+          'Logged At': e.created_at ? new Date(e.created_at).toLocaleString() : 'N/A'
+        };
+      });
+
+      const wb = XLSX.utils.book_new();
+      const wsExpenses = XLSX.utils.json_to_sheet(expRows);
+
+      XLSX.utils.book_append_sheet(wb, wsExpenses, "Expenses Log");
+
+      const fileName = `Mohit_Tailoring_Expenses_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      showToast("Export Complete", `Saved ${fileName}`, "success");
+    } catch (err) {
+      console.error("Export error:", err);
+      showToast("Export Failed", err.message || "Failed to generate Excel file", "error");
+    }
+  };
 
   const handleSaveSettings = (e) => {
     if (e) e.preventDefault();
@@ -740,7 +883,304 @@ export const SettingsView = () => {
           </div>
         </div>
 
+        {/* Section 6: Configurable Measurement Presets & Fields */}
+        <div className="p-6 rounded-3xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] shadow-xs space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-[#E3E3E3] dark:border-[#333333]">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-[#202020] text-white">
+                <Tag className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-[#202020] dark:text-white">Configurable Measurement Presets & Fields</h3>
+                <p className="text-xs text-[#777777]">Customize garment measurement templates and body fields used across customer profiles & invoices</p>
+              </div>
+            </div>
+
+            {userRole === 'OWNER' && (
+              <button
+                type="button"
+                onClick={() => setShowAddTemplateForm(!showAddTemplateForm)}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#202020] dark:bg-white text-white dark:text-[#202020] font-bold text-xs shadow-xs hover:opacity-90 transition-smooth cursor-pointer"
+              >
+                <Plus className="w-4 h-4" /> Add Preset
+              </button>
+            )}
+          </div>
+
+          {/* Add Template Inline Form */}
+          {showAddTemplateForm && (
+            <div className="p-4 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-xs text-[#202020] dark:text-white uppercase tracking-wider">New Measurement Preset</span>
+                <button
+                  type="button"
+                  onClick={() => setShowAddTemplateForm(false)}
+                  className="p-1 text-[#777777] hover:text-[#202020]"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#777777] mb-1">Preset Name *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Kurti / Sherwani / Suit"
+                    value={newTemplateName}
+                    onChange={(e) => setNewTemplateName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] text-xs font-bold text-[#202020] dark:text-white focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#777777] mb-1">Category</label>
+                  <select
+                    value={newTemplateCategory}
+                    onChange={(e) => setNewTemplateCategory(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] text-xs font-bold text-[#202020] dark:text-white focus:outline-none"
+                  >
+                    <option value="Women">Women</option>
+                    <option value="Men">Men</option>
+                    <option value="Kids">Kids</option>
+                    <option value="General">General</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowAddTemplateForm(false)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-[#777777]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCreateTemplate}
+                  className="px-4 py-1.5 rounded-lg bg-emerald-600 text-white font-bold text-xs shadow-xs cursor-pointer"
+                >
+                  Create Preset
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Preset templates list */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {measurementTemplates.map((tmpl) => (
+              <div key={tmpl.id} className="p-4 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  {editingTemplateId === tmpl.id ? (
+                    <div className="flex items-center gap-2 flex-1">
+                      <input
+                        type="text"
+                        value={editTemplateName}
+                        onChange={(e) => setEditTemplateName(e.target.value)}
+                        className="flex-1 px-2.5 py-1 rounded-lg bg-white dark:bg-[#1E1E1E] text-xs font-bold border border-[#E3E3E3] dark:border-[#333333] text-[#202020] dark:text-white focus:outline-none"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!editTemplateName.trim()) return;
+                          await renameMeasurementTemplate(tmpl.id, editTemplateName.trim());
+                          setEditingTemplateId(null);
+                        }}
+                        className="p-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 cursor-pointer shadow-xs"
+                        title="Save Name"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingTemplateId(null)}
+                        className="p-1 text-[#777777] hover:text-[#202020] dark:hover:text-white cursor-pointer"
+                        title="Cancel"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm text-[#202020] dark:text-white">{tmpl.name}</span>
+                      {tmpl.is_system_default && (
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/40 text-blue-600 border border-blue-200">
+                          Default
+                        </span>
+                      )}
+                      {userRole === 'OWNER' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingTemplateId(tmpl.id);
+                            setEditTemplateName(tmpl.name);
+                          }}
+                          className="p-1 text-[#777777] hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer"
+                          title="Rename Preset"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {userRole === 'OWNER' && editingTemplateId !== tmpl.id && (
+                    <div className="flex items-center gap-2">
+                      {!tmpl.is_system_default && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => toggleTemplateActive(tmpl.id, !tmpl.is_active)}
+                            className={`text-[11px] px-2.5 py-1 rounded-lg font-bold cursor-pointer transition-smooth ${
+                              tmpl.is_active
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400'
+                                : 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                            }`}
+                          >
+                            {tmpl.is_active ? 'Active' : 'Disabled'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteTemplate(tmpl.id)}
+                            className="p-1 text-[#777777] hover:text-red-500 cursor-pointer"
+                            title="Delete Preset"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {(tmpl.fields || []).map(f => (
+                    <span key={f.id || f.key} className="px-2 py-1 rounded-lg bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] text-[11px] font-medium text-[#777777] flex items-center gap-1">
+                      {f.label} {f.unit ? `(${f.unit})` : ''}
+                      {userRole === 'OWNER' && f.id && (
+                        <button
+                          type="button"
+                          onClick={() => deactivateTemplateField(f.id)}
+                          className="hover:text-red-500 text-gray-400 cursor-pointer ml-0.5"
+                          title="Deactivate field"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Inline Custom Field Creation */}
+                {userRole === 'OWNER' && (
+                  <div className="pt-2 border-t border-[#E3E3E3] dark:border-[#333333]">
+                    {activeFieldTmplId === tmpl.id ? (
+                      <div className="flex items-center gap-2 animate-fade-in">
+                        <input
+                          type="text"
+                          placeholder="Field name (e.g. Shoulder Width)"
+                          value={addFieldLabel}
+                          onChange={(e) => setAddFieldLabel(e.target.value)}
+                          className="flex-1 px-2.5 py-1 rounded-lg bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] text-xs font-bold text-[#202020] dark:text-white focus:outline-none"
+                        />
+                        <select
+                          value={addFieldUnit}
+                          onChange={(e) => setAddFieldUnit(e.target.value)}
+                          className="px-2 py-1 rounded-lg bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] text-xs font-bold text-[#202020] dark:text-white focus:outline-none"
+                        >
+                          <option value="inches">inches</option>
+                          <option value="cm">cm</option>
+                          <option value="">none</option>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!addFieldLabel.trim()) return;
+                            await addTemplateField(tmpl.id, addFieldLabel.trim(), addFieldUnit);
+                            setAddFieldLabel('');
+                            setActiveFieldTmplId(null);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold text-xs cursor-pointer shadow-xs"
+                        >
+                          Add
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveFieldTmplId(null)}
+                          className="p-1 text-[#777777] hover:text-[#202020] cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveFieldTmplId(tmpl.id);
+                          setAddFieldLabel('');
+                        }}
+                        className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Plus className="w-3 h-3" /> + Add Custom Field
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
       </form>
+
+      {/* Section: Real-time Excel (.xlsx) Data Exports */}
+      <div className="p-6 rounded-3xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] shadow-xs space-y-4">
+        <div className="flex items-center gap-3 pb-3 border-b border-[#E3E3E3] dark:border-[#333333]">
+          <div className="p-2.5 rounded-xl bg-emerald-600 text-white">
+            <Download className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="font-bold text-base text-[#202020] dark:text-white">Real-time Excel (.xlsx) Data Exports</h3>
+            <p className="text-xs text-[#777777]">Download instant offline Excel workbooks for shop records, customer ledger, orders, and expenses.</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="p-4 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] flex flex-col justify-between space-y-3">
+            <div>
+              <span className="font-bold text-sm text-[#202020] dark:text-white block">Customers & Orders Ledger (.xlsx)</span>
+              <p className="text-xs text-[#777777] mt-1">
+                Exports 2 detailed sheets: Customer profiles with measurement summaries + complete orders breakdown with payment status.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleExportCustomersAndOrders}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs cursor-pointer transition-smooth"
+            >
+              <FileSpreadsheet className="w-4 h-4" /> Export Customers & Orders (.xlsx)
+            </button>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] flex flex-col justify-between space-y-3">
+            <div>
+              <span className="font-bold text-sm text-[#202020] dark:text-white block">Expenses Log (.xlsx)</span>
+              <p className="text-xs text-[#777777] mt-1">
+                Exports shop operational expenses with category names, payment methods, dates, and descriptions.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleExportExpenses}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs cursor-pointer transition-smooth"
+            >
+              <Receipt className="w-4 h-4" /> Export Expenses Log (.xlsx)
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* Section: Google Sheets & Owner Business Data Export (OWNER ONLY) */}
       {userRole === 'OWNER' && (

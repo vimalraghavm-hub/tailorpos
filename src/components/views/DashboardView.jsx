@@ -27,6 +27,14 @@ export const DashboardView = () => {
     }
   }, [chartPeriod]);
 
+  useEffect(() => {
+    const handleSync = () => {
+      if (loadAnalytics) loadAnalytics(chartPeriod);
+    };
+    window.addEventListener('shop-data-updated', handleSync);
+    return () => window.removeEventListener('shop-data-updated', handleSync);
+  }, [chartPeriod, loadAnalytics]);
+
   // Fallback demo chart dataset if offline / no Supabase
   const fallbackChartDataMap = {
     Day: [

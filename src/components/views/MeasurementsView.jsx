@@ -16,10 +16,19 @@ import { useShop } from '../../context/ShopContext';
 import { GARMENT_MEASUREMENT_TYPES, GARMENT_MEASUREMENT_FIELDS } from '../../data/measurementDefinitions';
 
 export const MeasurementsView = () => {
-  const { customers, selectedCustomerId, setSelectedCustomerId, saveCustomerMeasurements, navigateTo, showToast } = useShop();
+  const { 
+    customers, 
+    selectedCustomerId, 
+    setSelectedCustomerId, 
+    saveCustomerMeasurements, 
+    navigateTo, 
+    showToast,
+    garmentMeasurementTypes = GARMENT_MEASUREMENT_TYPES,
+    garmentMeasurementFields = GARMENT_MEASUREMENT_FIELDS
+  } = useShop();
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeGarmentTab, setActiveGarmentTab] = useState('gown'); // gown, blouse, top, shirt, pant, custom
+  const [activeGarmentTab, setActiveGarmentTab] = useState(() => (garmentMeasurementTypes && garmentMeasurementTypes[0] ? garmentMeasurementTypes[0].id : 'gown'));
   const [isEditing, setIsEditing] = useState(false);
 
   // Active customer object
@@ -54,7 +63,7 @@ export const MeasurementsView = () => {
 
   const handleSave = () => {
     if (!activeCustomer) return;
-    GARMENT_MEASUREMENT_TYPES.forEach(type => {
+    garmentMeasurementTypes.forEach(type => {
       const typeData = measurementsForm[type.id] || {};
       saveCustomerMeasurements(activeCustomer.id, type.id, typeData, notesForm);
     });
@@ -64,7 +73,7 @@ export const MeasurementsView = () => {
   const handleCopyMeasurements = () => {
     if (!activeCustomer) return;
     let text = `Customer: ${activeCustomer.name} (${activeCustomer.phone})\n`;
-    GARMENT_MEASUREMENT_TYPES.forEach(type => {
+    garmentMeasurementTypes.forEach(type => {
       const typeData = measurementsForm[type.id];
       if (typeData && Object.keys(typeData).length > 0) {
         text += `${type.label.toUpperCase()}: ${JSON.stringify(typeData)}\n`;
@@ -74,7 +83,7 @@ export const MeasurementsView = () => {
     showToast("Copied to Clipboard", "Measurements text copied for WhatsApp/notes", "info");
   };
 
-  const currentGarmentFields = GARMENT_MEASUREMENT_FIELDS[activeGarmentTab] || [];
+  const currentGarmentFields = garmentMeasurementFields[activeGarmentTab] || GARMENT_MEASUREMENT_FIELDS[activeGarmentTab] || [];
   const currentGarmentData = measurementsForm[activeGarmentTab] || {};
 
   return (
@@ -204,7 +213,7 @@ export const MeasurementsView = () => {
 
             {/* Garment Type Tabs */}
             <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-[#F5F5F5] dark:bg-[#282828] border border-[#E3E3E3] dark:border-[#333333] overflow-x-auto">
-              {GARMENT_MEASUREMENT_TYPES.map((tab) => (
+              {garmentMeasurementTypes.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveGarmentTab(tab.id)}

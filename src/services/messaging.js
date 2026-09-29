@@ -1,5 +1,25 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase/client';
 
+export async function fetchNotificationHistory(shopId) {
+  try {
+    if (!isSupabaseConfigured || !supabase) return [];
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      console.warn("Notification fetch warning:", error);
+      return [];
+    }
+    return data || [];
+  } catch (err) {
+    console.error("Failed to load notifications:", err);
+    return [];
+  }
+}
+
 export const messagingService = {
   async sendNotification({ shopId, customerId, orderId, type = 'INVOICE', recipient, message, templateName = null }) {
     if (!isSupabaseConfigured || !supabase) {
@@ -32,19 +52,7 @@ export const messagingService = {
   },
 
   async getNotificationHistory(shopId) {
-    if (!isSupabaseConfigured || !supabase) return [];
-    const { data, error } = await supabase
-      .from('notifications')
-      .select('*, customers(name, phone), orders(invoice_number)')
-      .eq('shop_id', shopId)
-      .order('created_at', { ascending: false })
-      .limit(50);
-
-    if (error) {
-      console.error('Error fetching notification history:', error);
-      return [];
-    }
-    return data;
+    return fetchNotificationHistory(shopId);
   },
 
   async retryNotification(notificationRecord) {

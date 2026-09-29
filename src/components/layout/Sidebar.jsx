@@ -3,7 +3,6 @@ import {
   LayoutDashboard, 
   PlusCircle, 
   ClipboardList, 
-  Ruler, 
   Users, 
   Settings, 
   HelpCircle, 
@@ -25,29 +24,50 @@ export const Sidebar = () => {
     setMobileMenuOpen,
     showToast,
     userRole,
-    setShowAuthModal
+    userProfile,
+    logout,
+    hasWorkerPermission
   } = useShop();
 
-  const { hasWorkerPermission } = useShop();
-
   const allNavItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['OWNER', 'WORKER'], permissionCheck: () => hasWorkerPermission('VIEW_ASSIGNED_ORDERS') || hasWorkerPermission('VIEW_ALL_ORDERS') },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['OWNER', 'WORKER'], permissionKey: 'VIEW_ASSIGNED_ORDERS' },
     { id: 'new-invoice', label: 'New Invoice', icon: PlusCircle, roles: ['OWNER'] },
-    { id: 'registers', label: 'Registers', icon: ClipboardList, roles: ['OWNER', 'WORKER'], permissionCheck: () => hasWorkerPermission('VIEW_REGISTERS') },
-    { id: 'customers', label: 'Customers', icon: Users, roles: ['OWNER', 'WORKER'], permissionCheck: () => hasWorkerPermission('VIEW_CUSTOMER_PROFILE') },
+    { id: 'registers', label: 'Registers', icon: ClipboardList, roles: ['OWNER', 'WORKER'], permissionKey: 'VIEW_REGISTERS' },
+    { id: 'customers', label: 'Customers', icon: Users, roles: ['OWNER', 'WORKER'], permissionKey: 'VIEW_CUSTOMER_PROFILE' },
     { id: 'workers', label: 'Staff & Workers', icon: Users, roles: ['OWNER'] }
   ];
 
   const navItems = allNavItems.filter(item => {
     if (!item.roles.includes(userRole)) return false;
-    if (userRole === 'WORKER' && item.permissionCheck && !item.permissionCheck()) return false;
+
+    if (userRole === 'WORKER') {
+      const allowedTabs = userProfile?.permissions?.tabs || [];
+      if (Array.isArray(allowedTabs)) {
+        if (allowedTabs.includes(item.id)) return true;
+        if (item.id === 'customers' && (
+          allowedTabs.includes('customers') ||
+          allowedTabs.includes('Customer Profiles') ||
+          allowedTabs.includes('Customer Directory & Ledger')
+        )) return true;
+      }
+
+      if (item.id === 'registers' && hasWorkerPermission('VIEW_REGISTERS')) return true;
+      if (item.id === 'customers' && (
+        hasWorkerPermission('VIEW_CUSTOMER_PROFILE') || 
+        hasWorkerPermission('VIEW_CUSTOMER_CONTACT') ||
+        userProfile?.permissions?.features?.view_customers === true
+      )) return true;
+      if (item.id === 'dashboard' && (hasWorkerPermission('VIEW_ASSIGNED_ORDERS') || hasWorkerPermission('VIEW_ALL_ORDERS'))) return true;
+
+      return false;
+    }
     return true;
   });
 
   const bottomItems = [
     ...(userRole === 'OWNER' ? [{ id: 'settings', label: 'Settings', icon: Settings }] : []),
     { id: 'help', label: 'Help & Support', icon: HelpCircle, action: () => showToast("Help & Support", "Support desk is available 9 AM - 8 PM", "info") },
-    { id: 'logout', label: 'Account & Roles', icon: LogOut, action: () => setShowAuthModal(true) },
+    { id: 'logout', label: 'Sign Out', icon: LogOut, action: () => logout() },
   ];
 
   const handleNav = (item) => {
@@ -58,7 +78,7 @@ export const Sidebar = () => {
     }
   };
 
-  const SidebarContent = () => (
+  const renderSidebarContent = () => (
     <div className="flex flex-col h-full bg-[#FFFFFF] dark:bg-[#1E1E1E] border-r border-[#E3E3E3] dark:border-[#333333] transition-smooth select-none">
       {/* Brand Header */}
       <div className="p-4 border-b border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between">
@@ -108,7 +128,7 @@ export const Sidebar = () => {
             <button
               key={item.id}
               onClick={() => handleNav(item)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-sm transition-smooth group relative ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-sm transition-smooth group relative cursor-pointer ${
                 isActive
                   ? 'bg-[#202020] text-white shadow-sm dark:bg-white dark:text-[#202020]'
                   : 'text-[#777777] dark:text-[#9E9E9E] hover:bg-[#EEEEEE] dark:hover:bg-[#2A2A2A] hover:text-[#202020] dark:hover:text-white'
@@ -138,7 +158,7 @@ export const Sidebar = () => {
             <button
               key={item.id}
               onClick={() => handleNav(item)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-sm transition-smooth ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-sm transition-smooth cursor-pointer ${
                 isActive
                   ? 'bg-[#202020] text-white dark:bg-white dark:text-[#202020]'
                   : 'text-[#777777] dark:text-[#9E9E9E] hover:bg-[#EEEEEE] dark:hover:bg-[#2A2A2A] hover:text-[#202020] dark:hover:text-white'
@@ -162,7 +182,7 @@ export const Sidebar = () => {
           sidebarCollapsed ? 'w-[70px]' : 'w-[240px]'
         }`}
       >
-        <SidebarContent />
+        {renderSidebarContent()}
       </aside>
 
       {/* Mobile Drawer Overlay */}
@@ -173,7 +193,7 @@ export const Sidebar = () => {
             onClick={() => setMobileMenuOpen(false)}
           />
           <div className="relative w-[260px] max-w-[80vw] h-full shadow-2xl z-10 animate-fade-in">
-            <SidebarContent />
+            {renderSidebarContent()}
           </div>
         </div>
       )}

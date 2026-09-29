@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Printer, Scissors, Receipt } from 'lucide-react';
+import { X, Printer, Scissors, Receipt, Send } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
 import { useModalDismiss } from '../../utils/modalUtils';
 import { Modal } from '../common/Modal';
@@ -15,6 +15,14 @@ export const PrintInvoiceModal = ({ invoice, onClose }) => {
   const handlePrint = () => {
     window.print();
     showToast("Print Job Sent", "Sending document to printer...", "success");
+  };
+
+  const handleWhatsAppShare = () => {
+    const cleanDigits = String(invoice.phone || '').replaceAll(/\D/g, '');
+    const customerPhone = cleanDigits.length === 10 ? `91${cleanDigits}` : cleanDigits;
+    const text = `Hello ${invoice.customerName}, your invoice #${invoice.id} from ${settings.shopName || 'Mohit Tailors'} is ready! Total: ₹${invoice.total}, Paid: ₹${invoice.advancePaid}, Balance: ₹${invoice.balance}. Delivery Date: ${invoice.dueDate}. Thank you!`;
+    const waUrl = `https://wa.me/${customerPhone}?text=${encodeURIComponent(text)}`;
+    window.open(waUrl, '_blank');
   };
 
   // Helper to extract non-empty, non-zero measurements for this invoice
@@ -45,7 +53,7 @@ export const PrintInvoiceModal = ({ invoice, onClose }) => {
       isOpen={Boolean(invoice)}
       onClose={onClose}
       maxWidthClass="max-w-xl"
-      zIndex={9990}
+      zIndex={10050}
     >
         
         {/* Header (hidden in print) */}
@@ -106,9 +114,10 @@ export const PrintInvoiceModal = ({ invoice, onClose }) => {
         <div className="flex-1 p-6 overflow-y-auto bg-[#F5F5F5] dark:bg-[#141414] flex justify-center">
           <div 
             id="printable-invoice"
-            className={`bg-white text-black p-6 font-mono border border-dashed border-gray-300 shadow-md transition-all ${
-              printFormat === 'thermal' ? 'w-[320px] text-xs' : (printFormat === 'payment_slip' ? 'w-[360px] text-xs' : 'w-full max-w-lg text-sm')
+            className={`bg-white text-black p-4 font-mono border border-dashed border-gray-300 shadow-md transition-all ${
+              printFormat === 'thermal' ? 'w-[72mm] max-w-full box-border text-xs' : (printFormat === 'payment_slip' ? 'w-[360px] max-w-full box-border text-xs' : 'w-full max-w-lg text-sm')
             }`}
+            style={printFormat === 'thermal' ? { width: '72mm', maxWidth: '100%', boxSizing: 'border-box' } : { boxSizing: 'border-box' }}
           >
             {/* Payment Slip Specific View */}
             {printFormat === 'payment_slip' ? (
@@ -208,13 +217,13 @@ export const PrintInvoiceModal = ({ invoice, onClose }) => {
                 {/* Particulars Services Table */}
                 <div className="py-2.5 border-b border-dashed border-gray-400 text-[11px]">
                   <div className="flex justify-between font-bold pb-1 border-b border-gray-300 uppercase text-[10px]">
-                    <span className="w-1/2">SERVICE</span>
+                    <span className="w-1/2" style={{ wordBreak: 'break-word' }}>SERVICE</span>
                     <span className="w-1/4 text-center">QTY x RATE</span>
                     <span className="w-1/4 text-right">AMOUNT</span>
                   </div>
                   {(invoice.services || []).map((item, idx) => (
-                    <div key={idx} className="flex justify-between py-1 border-b border-dotted border-gray-200">
-                      <span className="w-1/2 font-semibold truncate pr-1">{item.name}</span>
+                    <div key={idx} className="flex justify-between items-center py-1 border-b border-dotted border-gray-200">
+                      <span className="w-1/2 font-semibold pr-1" style={{ wordBreak: 'break-word' }}>{item.name}</span>
                       <span className="w-1/4 text-center">{item.qty} x ₹{item.rate}</span>
                       <span className="w-1/4 text-right font-bold">₹{item.amount}</span>
                     </div>
@@ -223,19 +232,22 @@ export const PrintInvoiceModal = ({ invoice, onClose }) => {
 
                 {/* Relevant Order Measurements ONLY */}
                 {Object.keys(relevantMeasurements).length > 0 && (
-                  <div className="py-2.5 border-b border-dashed border-gray-400 text-[10px] space-y-1">
-                    <span className="font-bold block uppercase border-b border-gray-300 pb-0.5">Order Measurements:</span>
+                  <div className="py-2.5 border-b border-dashed border-gray-400 text-[11px] space-y-1.5" style={{ maxWidth: '100%', overflow: 'hidden', boxSizing: 'border-box' }}>
+                    <span className="font-bold block uppercase border-b border-gray-300 pb-0.5 text-[11px]">Order Measurements:</span>
                     {Object.entries(relevantMeasurements).map(([garment, fields]) => (
                       <div key={garment} className="pt-0.5">
-                        <span className="font-bold capitalize text-gray-700 block">
+                        <span className="font-bold capitalize text-gray-800 block text-[11px] mb-1" style={{ wordBreak: 'break-word', whiteSpace: 'normal' }}>
                           {garment} {fields.suppliedGarment ? '(Sample Garment Provided)' : ''}:
                         </span>
-                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 pl-2 text-[10px] text-gray-900">
+                        <div 
+                          className="grid grid-cols-3 gap-1.5 p-1.5 bg-gray-50 rounded border border-gray-200 text-[11px] text-gray-900"
+                          style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', maxWidth: '100%', boxSizing: 'border-box' }}
+                        >
                           {Object.entries(fields).map(([k, v]) => {
                             if (k === 'suppliedGarment') return null;
                             return (
-                              <span key={k}>
-                                <strong className="capitalize font-normal text-gray-600">{k}:</strong> {v}
+                              <span key={k} className="text-[11px] leading-tight" style={{ wordBreak: 'break-word', whiteSpace: 'normal' }}>
+                                <strong className="capitalize font-semibold text-gray-600 block text-[10px]">{k}</strong> {v}
                               </span>
                             );
                           })}
@@ -314,15 +326,53 @@ export const PrintInvoiceModal = ({ invoice, onClose }) => {
             Cancel
           </button>
           
-          <button
-            onClick={handlePrint}
-            className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#202020] dark:bg-white text-white dark:text-[#202020] font-bold text-sm hover:opacity-90 transition-smooth shadow-md cursor-pointer"
-          >
-            <Printer className="w-4 h-4" />
-            Print Document
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleWhatsAppShare}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-md transition-smooth cursor-pointer"
+            >
+              <Send className="w-4 h-4 text-white" />
+              Share Bill on WhatsApp
+            </button>
+            <button
+              onClick={handlePrint}
+              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#202020] dark:bg-white text-white dark:text-[#202020] font-bold text-sm hover:opacity-90 transition-smooth shadow-md cursor-pointer"
+            >
+              <Printer className="w-4 h-4" />
+              Print Document
+            </button>
+          </div>
         </div>
 
+        {/* CSS Print Styles for 80mm / A4 page boundary fitting */}
+        <style>{`
+          @media print {
+            body {
+              width: 100% !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              background: white !important;
+            }
+            .no-print {
+              display: none !important;
+            }
+            #printable-invoice {
+              max-width: 80mm !important;
+              width: 100% !important;
+              margin: 0 auto !important;
+              padding: 4mm !important;
+              box-shadow: none !important;
+              border: none !important;
+              page-break-inside: avoid !important;
+              overflow: hidden !important;
+              box-sizing: border-box !important;
+            }
+            #printable-invoice * {
+              word-break: break-word !important;
+              white-space: normal !important;
+            }
+          }
+        `}</style>
     </Modal>
   );
 };

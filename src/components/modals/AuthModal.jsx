@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
-import { KeyRound, Mail, User, ShieldCheck, LogOut, CheckCircle2, Lock, AlertCircle, Building2 } from 'lucide-react';
+import { ShieldCheck, User, LogOut, Building2, AlertCircle, Mail, Lock } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
 import { Modal } from '../common/Modal';
 import { useModalDismiss } from '../../utils/modalUtils';
-import { isSupabaseConfigured } from '../../lib/supabase/client';
 
 export const AuthModal = ({ isOpen, onClose }) => {
   const { user, userRole, userProfile, login, logout, showToast } = useShop();
@@ -21,7 +20,7 @@ export const AuthModal = ({ isOpen, onClose }) => {
     e.preventDefault();
     setErrorMessage('');
     if (!email.trim() || !password.trim()) {
-      setErrorMessage('Please enter both email and password.');
+      setErrorMessage('Invalid email or password.');
       return;
     }
 
@@ -33,20 +32,7 @@ export const AuthModal = ({ isOpen, onClose }) => {
       showToast("Authentication Successful", `Welcome back! Signed in as ${res.profile?.role || 'User'}`, "success");
       onClose();
     } else {
-      setErrorMessage((res && res.error) || 'Login failed. Please check credentials.');
-    }
-  };
-
-  const handleQuickDemoLogin = async (targetRole) => {
-    setLoading(true);
-    let demoEmail = 'owner@mohittailoring.app';
-    if (targetRole === 'WORKER') demoEmail = 'worker1@mohittailoring.app';
-
-    const res = await login(demoEmail, 'Mohit@2026');
-    setLoading(false);
-    if (res && res.success) {
-      showToast("Demo Profile Loaded", `Switched to ${targetRole} mode`, "info");
-      onClose();
+      setErrorMessage(res?.error || 'Invalid email or password.');
     }
   };
 
@@ -75,10 +61,10 @@ export const AuthModal = ({ isOpen, onClose }) => {
           </div>
           <div>
             <h3 className="font-bold text-base text-[#202020] dark:text-white leading-tight">
-              Authentication & Roles
+              User Profile & Security
             </h3>
             <p className="text-xs text-[#777777]">
-              {isSupabaseConfigured ? 'Supabase Security Portal' : 'Development Authentication Portal'}
+              Supabase Security Portal
             </p>
           </div>
         </div>
@@ -113,20 +99,14 @@ export const AuthModal = ({ isOpen, onClose }) => {
                     <Building2 className="w-3 h-3 text-emerald-600" /> Mohit Tailoring
                   </span>
                 </div>
-                <div className="flex justify-between">
-                  <span>Mode:</span>
-                  <span className="font-semibold text-emerald-600">
-                    {isSupabaseConfigured ? 'Supabase Cloud Postgres' : 'Local Prototype / Demo'}
-                  </span>
-                </div>
               </div>
             </div>
 
             <button
               type="button"
               onClick={async () => {
+                onClose();
                 await logout();
-                showToast("Signed Out", "Logged out of session", "info");
               }}
               className="w-full py-3 rounded-2xl bg-[#B85C5C] hover:bg-red-700 text-white font-bold text-xs transition-smooth shadow-md flex items-center justify-center gap-2 cursor-pointer"
             >
@@ -146,7 +126,7 @@ export const AuthModal = ({ isOpen, onClose }) => {
             <div className="space-y-1">
               <label className="block text-xs font-bold text-[#777777] uppercase tracking-wider">Email Address</label>
               <div className="relative flex items-center">
-                <Mail className="w-4 h-4 text-[#777777] absolute left-3.5" />
+                <Mail className="w-4 h-4 text-[#777777] absolute left-3.5 pointer-events-none" />
                 <input
                   type="email"
                   placeholder="owner@mohittailoring.app"
@@ -161,7 +141,7 @@ export const AuthModal = ({ isOpen, onClose }) => {
             <div className="space-y-1">
               <label className="block text-xs font-bold text-[#777777] uppercase tracking-wider">Password</label>
               <div className="relative flex items-center">
-                <Lock className="w-4 h-4 text-[#777777] absolute left-3.5" />
+                <Lock className="w-4 h-4 text-[#777777] absolute left-3.5 pointer-events-none" />
                 <input
                   type="password"
                   placeholder="••••••••••••"
@@ -180,29 +160,6 @@ export const AuthModal = ({ isOpen, onClose }) => {
             >
               {loading ? 'Authenticating...' : 'Sign In'}
             </button>
-
-            {/* QUICK ROLE SWITCHER FOR PROTOTYPE / TEST MODE */}
-            <div className="pt-3 border-t border-[#E3E3E3] dark:border-[#333333] space-y-2">
-              <span className="text-[10px] font-bold text-[#777777] uppercase tracking-wider block text-center">
-                Quick Test Role Switcher
-              </span>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemoLogin('OWNER')}
-                  className="py-1.5 px-2 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-bold border border-purple-200 dark:border-purple-800 text-[10px] hover:bg-purple-100 cursor-pointer text-center"
-                >
-                  OWNER
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemoLogin('WORKER')}
-                  className="py-1.5 px-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-bold border border-amber-200 dark:border-amber-800 text-[10px] hover:bg-amber-100 cursor-pointer text-center"
-                >
-                  WORKER
-                </button>
-              </div>
-            </div>
           </form>
         )}
       </div>

@@ -1,50 +1,70 @@
 import React, { useState } from 'react';
 import { 
   Search, 
-  Filter, 
   Check, 
-  Clock, 
   Calendar, 
-  Scissors, 
-  CheckCircle2, 
-  Eye, 
   ChevronRight,
   ChevronDown,
-  ArrowUpDown,
   User,
-  Info,
   Layers,
   Plus,
   Trash2,
-  AlertTriangle,
   X,
   Truck,
-  Banknote
+  Users,
+  ShieldAlert
 } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
 import { StatusBadge } from '../common/StatusBadge';
 import { WorkflowEditorModal } from '../modals/WorkflowEditorModal';
-import { Modal } from '../common/Modal';
+import { DeliveryPaymentModal } from '../modals/DeliveryPaymentModal';
 import { useModalDismiss } from '../../utils/modalUtils';
+import { useRealtimeRegisters } from '../../hooks/useRealtimeRegisters';
+
+import { fetchAllOrders, removeOrderFromRegister } from '../../services/orders';
+import { supabase, isUuid } from '../../lib/supabase/client';
 
 export const RegistersView = () => {
   const { 
     invoices, 
     customers, 
     productionStatuses, 
-    addProductionStatus, 
-    editProductionStatus,
-    deleteProductionStatus,
     updateServiceStatus, 
     deliverOrder,
+    deleteOrder,
+    archiveOrderInRegister,
+    refetchOrders,
     openCustomerProfile, 
     navigateTo,
     userRole,
+    userProfile,
+    user,
     workersList,
     orderAssignmentsMap,
+    customerAssignmentsMap,
     assignOrderToWorker,
-    hasWorkerPermission
+    hasWorkerPermission,
+    showToast
   } = useShop();
+
+  const shopId = 'a1000000-0000-0000-0000-000000000001';
+  const currentUser = userProfile || user;
+  const currentUserId = currentUser?.id || currentUser?.auth_user_id || currentUser?.worker_id;
+  const currentUserRole = currentUser?.role || userRole;
+  const [orders, setOrders] = useState([]);
+
+  React.useEffect(() => {
+    async function loadOrders() {
+      const data = await fetchAllOrders(shopId, currentUser);
+      if (data) {
+        setOrders(data);
+      }
+    }
+    loadOrders();
+  }, [currentUserId, currentUserRole]);
+
+  // Connect Realtime WebSocket Subscription with OCC & LWW conflict resolution
+  useRealtimeRegisters(orders, setOrders, showToast, currentUserId);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [stageFilter, setStageFilter] = useState('All'); 
@@ -56,16 +76,27 @@ export const RegistersView = () => {
   // Interactive per-service status dropdown state
   const [activePopoverKey, setActivePopoverKey] = useState(null); // `${invoiceId}_${serviceId}`
   
+  // Multi-Worker Assignment Popover State
+  const [activeAssignPopoverOrderId, setActiveAssignPopoverOrderId] = useState(null);
+  const [selectedWorkerIds, setSelectedWorkerIds] = useState([]);
+  const [alsoAssignCustCheck, setAlsoAssignCustCheck] = useState(false);
+
   // Custom status & production workflow management modal state
   const [showStatusManagerModal, setShowStatusManagerModal] = useState(false);
-  const [pendingServiceTarget, setPendingServiceTarget] = useState(null); // { invoiceId, serviceId }
+  const [pendingServiceTarget, setPendingServiceTarget] = useState(null);
 
-  // Delivery + Payment Settlement confirmation modal state (Requirement 14)
+  // Delivery + Payment Settlement confirmation modal state
   const [deliverySettlementInvoice, setDeliverySettlementInvoice] = useState(null);
   const [settlementPaymentMode, setSettlementPaymentMode] = useState('Cash');
 
-  // ESC key dismiss for settlement modal
+  // Order Deletion Confirmation Modal state
+  const [orderToDelete, setOrderToDelete] = useState(null);
+
   useModalDismiss(() => setDeliverySettlementInvoice(null), Boolean(deliverySettlementInvoice));
+  useModalDismiss(() => setOrderToDelete(null), Boolean(orderToDelete));
+
+  const isWorker = userRole === 'WORKER';
+  const canViewContact = !isWorker || (hasWorkerPermission && hasWorkerPermission('VIEW_CUSTOMER_CONTACT'));
 
   const handleClearFilters = () => {
     setSearchTerm('');
@@ -73,6 +104,150 @@ export const RegistersView = () => {
     setTimeFilter('All');
     setSelectedSingleDate('');
   };
+
+  const handleUpdateOrderStatus = async (e, order, newStatus, serviceIndex = null) => {
+    if (e) {
+      if (typeof e.stopPropagation === 'function') e.stopPropagation();
+      if (typeof e.preventDefault === 'function') e.preventDefault();
+    }
+
+    if (!order || !newStatus) return;
+
+    // Resolve order object and target invoice number
+    const targetOrder = typeof order === 'object' && order !== null
+      ? order
+      : (orders.find(o => String(o.id) === String(order) || String(o.invoice_number) === String(order) || String(o.dbId) === String(order)) || { id: order, invoice_number: order });
+
+    const invoiceNum = targetOrder.invoice_number || targetOrder.id || targetOrder.invoiceNumber;
+    if (!invoiceNum) return;
+
+    // Close popover menu
+    setActivePopoverKey(null);
+
+    // If newStatus is DELIVERED, delegate directly to canonical DeliveryPaymentModal / deliverOrder flow
+    if (newStatus.toUpperCase() === 'DELIVERED') {
+      setDeliverySettlementInvoice(targetOrder);
+      return;
+    }
+
+    // Save previous state snapshot for automatic rollback on error
+    const previousOrdersSnapshot = orders;
+
+    // A. INSTANT OPTIMISTIC UI UPDATE (0ms delay)
+    setOrders((prevOrders) =>
+      prevOrders.map((o) => {
+        const isMatch = (o.invoice_number && String(o.invoice_number) === String(invoiceNum)) ||
+                        (o.id && String(o.id) === String(invoiceNum)) ||
+                        (targetOrder.id && String(o.id) === String(targetOrder.id));
+
+        if (isMatch) {
+          // Deep clone to guarantee React state re-render
+          const updated = JSON.parse(JSON.stringify(o));
+
+          const updateItemArray = (arr) => {
+            if (!Array.isArray(arr) || arr.length === 0) return arr;
+            if (serviceIndex !== null && serviceIndex !== undefined && arr[serviceIndex]) {
+              arr[serviceIndex].status = newStatus;
+              arr[serviceIndex].task_status = newStatus;
+            } else {
+              arr.forEach((s) => {
+                s.status = newStatus;
+                s.task_status = newStatus;
+              });
+            }
+            return arr;
+          };
+
+          if (updated.services) updateItemArray(updated.services);
+          if (updated.items) updateItemArray(updated.items);
+          if (updated.order_items) updateItemArray(updated.order_items);
+
+          const allItems = updated.order_items || updated.services || updated.items || [];
+          if (allItems.length > 0) {
+            const statuses = allItems.map(s => (s.status || s.task_status || "PENDING").toUpperCase());
+            if (statuses.every(st => st === "DELIVERED")) {
+              updated.status = "DELIVERED";
+              updated.overall_status = "DELIVERED";
+            } else if (statuses.every(st => st === "READY")) {
+              updated.status = "READY";
+              updated.overall_status = "READY";
+            } else if (statuses.every(st => st === "PENDING")) {
+              updated.status = "PENDING";
+              updated.overall_status = "PENDING";
+            } else if (statuses.every(st => st === statuses[0])) {
+              updated.status = statuses[0];
+              updated.overall_status = statuses[0];
+            } else {
+              updated.status = "IN PROGRESS";
+              updated.overall_status = "IN PROGRESS";
+            }
+          } else {
+            updated.status = newStatus;
+            updated.overall_status = newStatus;
+          }
+
+          return updated;
+        }
+        return o;
+      })
+    );
+
+    if (updateServiceStatus) {
+      const arr = targetOrder?.services || targetOrder?.order_items || targetOrder?.items || [];
+      const targetItem = serviceIndex !== null && serviceIndex !== undefined ? arr[serviceIndex] : null;
+      if (targetItem?.id) {
+        updateServiceStatus(targetOrder.id || invoiceNum, targetItem.id, newStatus);
+      }
+    }
+
+    // B. SUPABASE PERSISTENCE FOR NON-DELIVERY PRODUCTION STATUSES
+    try {
+      let updatedServices = Array.isArray(targetOrder.services) ? [...targetOrder.services] : [];
+      if (updatedServices.length > 0) {
+        updatedServices = updatedServices.map((s, idx) =>
+          serviceIndex === null || serviceIndex === undefined || idx === serviceIndex
+            ? { ...s, status: newStatus, task_status: newStatus }
+            : s
+        );
+      }
+
+      const patchPayload = {
+        status: newStatus,
+        overall_status: newStatus,
+        services: updatedServices,
+        updated_at: new Date().toISOString()
+      };
+
+      const targetSearchKey = String(invoiceNum);
+      let query = supabase.from('orders').update(patchPayload);
+
+      if (isUuid(targetOrder.id)) {
+        query = query.eq('id', String(targetOrder.id));
+      } else {
+        query = query.eq('invoice_number', targetSearchKey);
+      }
+
+      const { error } = await query;
+
+      if (error) {
+        console.error("Database update failed, rolling back local state:", error);
+        setOrders(previousOrdersSnapshot);
+        if (typeof showToast === 'function') {
+          showToast("Sync Warning", `Unable to sync status update to ${newStatus}. Reverted local change.`, "error");
+        }
+      }
+    } catch (err) {
+      console.error("Failed to persist status change, rolling back local state:", err);
+      setOrders(previousOrdersSnapshot);
+      if (typeof showToast === 'function') {
+        showToast("Sync Error", `Failed to persist status change. Reverted local change.`, "error");
+      }
+    }
+  };
+
+  const handleStatusChange = handleUpdateOrderStatus;
+  const handleSelectProductionStatus = handleUpdateOrderStatus;
+  const handleProductionStatusChange = handleUpdateOrderStatus;
 
   const hasActiveFilters = Boolean(searchTerm || stageFilter !== 'All' || timeFilter !== 'All' || selectedSingleDate);
 
@@ -100,24 +275,36 @@ export const RegistersView = () => {
 
   // Delivery Click Handler
   const handleMarkDeliveredClick = (invoiceObj) => {
-    if (invoiceObj.balance > 0) {
-      setDeliverySettlementInvoice(invoiceObj);
-      setSettlementPaymentMode(invoiceObj.paymentMode || 'Cash');
-    } else {
-      deliverOrder(invoiceObj.id, true, invoiceObj.paymentMode);
+    if (isWorker && hasWorkerPermission && !hasWorkerPermission('DELIVER_ORDERS')) {
+      showToast("Access Denied", "Worker account is not authorized to deliver orders.", "error");
+      return;
     }
+    setDeliverySettlementInvoice(invoiceObj);
+    setSettlementPaymentMode(invoiceObj.paymentMode || 'Cash');
   };
 
-  const handleConfirmDeliveredAndPaid = () => {
-    if (!deliverySettlementInvoice) return;
-    deliverOrder(deliverySettlementInvoice.id, true, settlementPaymentMode);
-    setDeliverySettlementInvoice(null);
+  // Open Multi-Worker assignment popover
+  const handleOpenAssignPopover = (inv) => {
+    if (userRole !== 'OWNER') return;
+    const currentAssignments = orderAssignmentsMap[inv.id] || orderAssignmentsMap[inv.dbId] || [];
+    const currentArray = Array.isArray(currentAssignments) ? currentAssignments : [currentAssignments];
+    const initialIds = currentArray.map(a => a?.workerId).filter(Boolean);
+    
+    setSelectedWorkerIds(initialIds);
+    setAlsoAssignCustCheck(false);
+    setActiveAssignPopoverOrderId(inv.id);
   };
 
-  const handleConfirmDeliverWithBalance = () => {
-    if (!deliverySettlementInvoice) return;
-    deliverOrder(deliverySettlementInvoice.id, false);
-    setDeliverySettlementInvoice(null);
+  const toggleSelectWorkerId = (wId) => {
+    setSelectedWorkerIds(prev => 
+      prev.includes(wId) ? prev.filter(id => id !== wId) : [...prev, wId]
+    );
+  };
+
+  const handleSaveMultiAssignment = async (inv) => {
+    const targetCustId = inv.customerId || inv.customer_id;
+    await assignOrderToWorker(inv.id, selectedWorkerIds, alsoAssignCustCheck, targetCustId);
+    setActiveAssignPopoverOrderId(null);
   };
 
   // Filter logic - Unique stage names without duplication
@@ -128,8 +315,52 @@ export const RegistersView = () => {
   }).filter(Boolean);
   const availableStageNames = ['All', ...Array.from(new Set(rawStageNames))];
 
-  const filteredInvoices = (invoices || []).filter(inv => {
-    if (!inv) return false;
+  // Source invoices: use fetched orders array if present, fallback to context invoices
+  const sourceInvoices = React.useMemo(() => {
+    if (orders && orders.length > 0) {
+      return orders.map(ord => {
+        if (ord.dbId || (ord.services && ord.customerName)) {
+          return ord;
+        }
+        const lineItems = (ord.order_items || []).map(item => ({
+          id: item.id,
+          serviceId: item.service_id,
+          name: item.service_name_snapshot || item.name || 'Service',
+          rate: parseFloat(item.unit_price) || 0,
+          qty: item.quantity || 1,
+          amount: parseFloat(item.line_total) || 0,
+          status: item.status || 'PENDING'
+        }));
+
+        return {
+          id: ord.invoice_number || ord.id,
+          dbId: ord.id,
+          customerId: ord.customer_id,
+          customerName: ord.customers?.name || ord.customer_name || 'Customer',
+          phone: ord.customers?.phone || ord.customer_phone || '',
+          customers: ord.customers,
+          date: ord.order_date || ord.created_at?.split('T')[0],
+          dueDate: ord.due_date || ord.order_date,
+          subtotal: parseFloat(ord.subtotal) || 0,
+          discount: parseFloat(ord.discount) || 0,
+          discount_type: ord.discount_type || 'amount',
+          total: parseFloat(ord.total_amount || ord.total) || 0,
+          advancePaid: parseFloat(ord.total_paid || ord.advancePaid) || 0,
+          balance: parseFloat(ord.balance_amount || ord.balance) || 0,
+          status: ord.status || 'PENDING',
+          notes: ord.notes || '',
+          measurements: ord.measurement_snapshot || {},
+          services: lineItems,
+          created_at: ord.created_at,
+          archived_in_register: Boolean(ord.archived_in_register)
+        };
+      });
+    }
+    return invoices || [];
+  }, [orders, invoices]);
+
+  const filteredInvoices = (sourceInvoices || []).filter(inv => {
+    if (!inv || inv.archived_in_register) return false;
     const invId = String(inv.id || '');
     const custName = String(inv.customerName || '');
     const phone = String(inv.phone || '');
@@ -189,7 +420,7 @@ export const RegistersView = () => {
       } else if (timeFilter === 'Custom Date') {
         if (selectedSingleDate) {
           const targetDateObj = new Date(selectedSingleDate);
-          const targetDateStr = selectedSingleDate; // YYYY-MM-DD
+          const targetDateStr = selectedSingleDate;
           const invoiceDateStr = String(inv.date || '');
           
           const matchDueDate = invDateStr && (
@@ -206,10 +437,18 @@ export const RegistersView = () => {
       }
     }
 
-    // Worker Assigned Orders Filter
-    if (userRole === 'WORKER' && !hasWorkerPermission('VIEW_ALL_ORDERS')) {
-      const assigned = orderAssignmentsMap[inv.id] || orderAssignmentsMap[inv.dbId];
-      if (!assigned) return false;
+    // Worker Order Filtering (Requirement 5): Show ONLY orders assigned to worker ID or worker's customer profile
+    if (isWorker && !hasWorkerPermission('VIEW_ALL_ORDERS') && !hasWorkerPermission('view_all_orders')) {
+      const currentWorkerId = userProfile?.id || userProfile?.auth_user_id;
+      const orderAssignedList = orderAssignmentsMap[inv.id] || orderAssignmentsMap[inv.dbId] || [];
+      const orderAssignedArray = Array.isArray(orderAssignedList) ? orderAssignedList : [orderAssignedList];
+      const isAssignedToOrder = orderAssignedArray.some(a => a?.workerId === currentWorkerId || a?.workerId === userProfile?.id);
+
+      const custAssignedList = customerAssignmentsMap[inv.customerId] || customerAssignmentsMap[inv.customer_id] || [];
+      const custAssignedArray = Array.isArray(custAssignedList) ? custAssignedList : [custAssignedList];
+      const isAssignedToCust = custAssignedArray.some(a => a?.workerId === currentWorkerId || a?.workerId === userProfile?.id);
+
+      if (!isAssignedToOrder && !isAssignedToCust) return false;
     }
 
     return true;
@@ -225,17 +464,19 @@ export const RegistersView = () => {
             Production Registers
           </h2>
           <p className="text-xs text-[#777777] mt-1">
-            Shopfloor task pipeline. Track & update per-service production status (reversible to any stage), add/delete custom statuses, or settle deliveries.
+            Shopfloor task pipeline. Track & update per-service production status (reversible to any stage), manage multi-worker assignments, or settle deliveries.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowStatusManagerModal(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition-smooth shadow-xs cursor-pointer"
-          >
-            <Layers className="w-4 h-4" /> Manage Production Workflow
-          </button>
+          {!isWorker && (
+            <button
+              onClick={() => setShowStatusManagerModal(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition-smooth shadow-xs cursor-pointer"
+            >
+              <Layers className="w-4 h-4" /> Manage Production Workflow
+            </button>
+          )}
           <span className="px-3.5 py-2 rounded-xl bg-[#202020] text-white dark:bg-white dark:text-[#202020] text-xs font-bold shadow-xs">
             {filteredInvoices.length} Orders Listed
           </span>
@@ -340,16 +581,27 @@ export const RegistersView = () => {
             <thead>
               <tr className="border-b-2 border-[#E3E3E3] dark:border-[#333333] text-[#777777] uppercase text-[10px] tracking-wider bg-[#F5F5F5]/60 dark:bg-[#252525]/60">
                 <th className="py-3 px-4 font-bold w-[12%]">Invoice #</th>
-                <th className="py-3 px-4 font-bold w-[20%]">Customer Name</th>
-                <th className="py-3 px-4 font-bold w-[13%]">Delivery Date</th>
-                <th className="py-3 px-4 font-bold w-[35%]">Services & Per-Task Production Status</th>
-                <th className="py-3 px-4 font-bold w-[12%]">Overall Status</th>
-                <th className="py-3 px-4 text-right font-bold w-[8%]">Actions</th>
+                <th className="py-3 px-4 font-bold w-[18%]">Customer Name</th>
+                <th className="py-3 px-4 font-bold w-[15%]">Assigned Worker(s)</th>
+                <th className="py-3 px-4 font-bold w-[12%]">Delivery Date</th>
+                <th className="py-3 px-4 font-bold w-[28%]">Services & Per-Task Production Status</th>
+                <th className="py-3 px-4 font-bold w-[10%]">Overall Status</th>
+                <th className="py-3 px-4 text-right font-bold w-[5%]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E3E3E3] dark:divide-[#333333]">
               {filteredInvoices.map((inv) => {
                 const targetCustomer = (customers || []).find(c => c && (c.id === inv.customerId || (inv.phone && c.phone && c.phone === inv.phone)));
+                const customerName = inv.customerName || inv.customers?.name || inv.customer_name || targetCustomer?.name || 'Unassigned Customer';
+                const rawPhone = inv.phone || inv.customers?.phone || inv.customer_phone || targetCustomer?.phone || '';
+                const displayPhone = canViewContact ? (rawPhone || 'N/A') : '••• Restricted •••';
+
+                // Multi-worker assignment list
+                const rawAssignments = orderAssignmentsMap[inv.id] || orderAssignmentsMap[inv.dbId] || [];
+                const assignedArray = Array.isArray(rawAssignments) ? rawAssignments : [rawAssignments];
+                const assignedWorkerNames = assignedArray.map(a => a?.workerName).filter(Boolean);
+
+                const isAssignPopoverOpen = activeAssignPopoverOrderId === inv.id;
 
                 return (
                   <tr 
@@ -371,10 +623,10 @@ export const RegistersView = () => {
                         className="cursor-pointer group inline-block"
                       >
                         <span className="font-bold text-[#202020] dark:text-white group-hover:text-emerald-600 transition-smooth block">
-                          {inv.customerName}
+                          {customerName}
                         </span>
                         <span className="text-[11px] text-[#777777] font-mono block">
-                          {inv.phone}
+                          {displayPhone}
                         </span>
                       </div>
 
@@ -383,11 +635,11 @@ export const RegistersView = () => {
                         <div className="absolute left-4 top-full mt-1 w-72 bg-white dark:bg-[#1E1E1E] rounded-2xl shadow-2xl border border-[#E3E3E3] dark:border-[#333333] p-3.5 z-40 animate-fade-in pointer-events-none">
                           <div className="flex items-center gap-2.5 pb-2 border-b border-[#E3E3E3] dark:border-[#333333]">
                             <div className="w-7 h-7 rounded-lg bg-[#202020] text-white flex items-center justify-center font-bold text-xs">
-                              {(inv.customerName || 'CU').slice(0, 2).toUpperCase()}
+                              {(customerName || 'CU').slice(0, 2).toUpperCase()}
                             </div>
                             <div>
-                              <h4 className="font-bold text-xs text-[#202020] dark:text-white leading-tight">{inv.customerName || 'Customer'}</h4>
-                              <span className="text-[10px] text-[#777777] font-mono">{inv.phone}</span>
+                              <h4 className="font-bold text-xs text-[#202020] dark:text-white leading-tight">{customerName}</h4>
+                              <span className="text-[10px] text-[#777777] font-mono">{displayPhone}</span>
                             </div>
                           </div>
 
@@ -411,6 +663,87 @@ export const RegistersView = () => {
                       )}
                     </td>
 
+                    {/* Multi-Worker Assignment Column */}
+                    <td className="py-4 px-4 align-top relative">
+                      <div className="space-y-1">
+                        {assignedWorkerNames.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {assignedWorkerNames.map((wName, i) => (
+                              <span key={i} className="px-2 py-0.5 rounded-lg bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 border border-purple-200 text-[10px] font-bold">
+                                {wName}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-[#777777] italic block">Unassigned</span>
+                        )}
+
+                        {!isWorker && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAssignPopover(inv)}
+                            className="text-[10px] font-bold text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1 cursor-pointer mt-1"
+                          >
+                            <Users className="w-3 h-3" /> Assign Worker(s)
+                          </button>
+                        )}
+                      </div>
+
+                      {/* MULTI-WORKER ASSIGNMENT POPOVER */}
+                      {isAssignPopoverOpen && (
+                        <div className="absolute left-0 top-full mt-1 w-64 bg-white dark:bg-[#1E1E1E] rounded-2xl shadow-2xl border border-[#E3E3E3] dark:border-[#333333] p-4 z-50 animate-fade-in space-y-3">
+                          <div className="flex items-center justify-between border-b border-[#E3E3E3] dark:border-[#333333] pb-2">
+                            <span className="font-bold text-xs text-[#202020] dark:text-white">Assign Workers</span>
+                            <button onClick={() => setActiveAssignPopoverOrderId(null)} className="text-[#777777] p-1">
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <div className="max-h-36 overflow-y-auto space-y-1">
+                            {workersList.map((w) => {
+                              const isChecked = selectedWorkerIds.includes(w.id) || selectedWorkerIds.includes(w.auth_user_id);
+                              return (
+                                <button
+                                  key={w.id}
+                                  type="button"
+                                  onClick={() => toggleSelectWorkerId(w.id)}
+                                  className={`w-full text-left p-2 rounded-xl border flex items-center justify-between text-xs transition-smooth cursor-pointer ${
+                                    isChecked ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-300 text-purple-900 dark:text-purple-200' : 'border-gray-200 dark:border-[#333333] text-[#777777]'
+                                  }`}
+                                >
+                                  <span className="font-semibold text-[11px]">{w.full_name}</span>
+                                  <div className={`w-3.5 h-3.5 rounded flex items-center justify-center border ${isChecked ? 'bg-purple-600 border-purple-600 text-white' : 'border-gray-400'}`}>
+                                    {isChecked && <Check className="w-2.5 h-2.5" />}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {/* Requirement 3: Add option "Also Assign Customer Profile to Worker" */}
+                          <label className="flex items-center gap-2 pt-1 border-t border-[#E3E3E3] dark:border-[#333333] text-[11px] text-[#777777] cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={alsoAssignCustCheck}
+                              onChange={(e) => setAlsoAssignCustCheck(e.target.checked)}
+                              className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                            />
+                            <span className="font-semibold text-[#202020] dark:text-white">Also Assign Customer Profile to Worker</span>
+                          </label>
+
+                          <div className="flex justify-end gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => handleSaveMultiAssignment(inv)}
+                              className="w-full py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-xs cursor-pointer"
+                            >
+                              Save Worker Assignment
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </td>
+
                     {/* Target Delivery Date */}
                     <td className="py-4 px-4 font-bold text-[#202020] dark:text-white align-top">
                       <div className="flex items-center gap-1.5">
@@ -426,7 +759,7 @@ export const RegistersView = () => {
                           const svcId = (svc && svc.id) ? svc.id : `svc-${sIdx}`;
                           const svcName = (svc && svc.name) ? svc.name : 'Service';
                           const svcQty = (svc && svc.qty !== undefined) ? svc.qty : 1;
-                          const currentSvcStatus = (svc && svc.status ? svc.status : 'PENDING').toUpperCase();
+                          const currentSvcStatus = (svc?.status || svc?.task_status || inv?.overall_status || inv?.status || 'PENDING').toUpperCase();
                           const popoverKey = `${inv.id || 'inv'}_${svcId}`;
                           const isOpen = activePopoverKey === popoverKey;
 
@@ -443,7 +776,7 @@ export const RegistersView = () => {
                               <div className="relative">
                                 <button
                                   type="button"
-                                  onClick={() => setActivePopoverKey(isOpen ? null : popoverKey)}
+                                  onClick={(e) => { e.stopPropagation(); setActivePopoverKey(isOpen ? null : popoverKey); }}
                                   className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border shrink-0 flex items-center gap-1.5 cursor-pointer ${getServiceStatusBadgeClass(currentSvcStatus)}`}
                                   title="Click to select or change production status (reversible)"
                                 >
@@ -466,10 +799,8 @@ export const RegistersView = () => {
                                         return (
                                           <button
                                             key={stId}
-                                            onClick={() => {
-                                              updateServiceStatus(inv.id, svc.id, stName);
-                                              setActivePopoverKey(null);
-                                            }}
+                                            type="button"
+                                            onClick={(e) => handleUpdateOrderStatus(e, inv, stName, sIdx)}
                                             className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-between transition-smooth cursor-pointer ${
                                               isCurrent 
                                                 ? 'bg-[#202020] text-white dark:bg-white dark:text-[#202020]' 
@@ -483,18 +814,20 @@ export const RegistersView = () => {
                                       })}
                                     </div>
 
-                                    <div className="pt-1.5 mt-1 border-t border-[#E3E3E3] dark:border-[#333333] px-1">
-                                      <button
-                                        onClick={() => {
-                                          setActivePopoverKey(null);
-                                          setPendingServiceTarget({ invoiceId: inv.id, serviceId: svc.id });
-                                          setShowStatusManagerModal(true);
-                                        }}
-                                        className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 flex items-center gap-1.5 cursor-pointer"
-                                      >
-                                        <Plus className="w-3.5 h-3.5" /> Add Custom Status
-                                      </button>
-                                    </div>
+                                    {!isWorker && (
+                                      <div className="pt-1.5 mt-1 border-t border-[#E3E3E3] dark:border-[#333333] px-1">
+                                        <button
+                                          onClick={() => {
+                                            setActivePopoverKey(null);
+                                            setPendingServiceTarget({ invoiceId: inv.id, serviceId: svc.id });
+                                            setShowStatusManagerModal(true);
+                                          }}
+                                          className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 flex items-center gap-1.5 cursor-pointer"
+                                        >
+                                          <Plus className="w-3.5 h-3.5" /> Add Custom Status
+                                        </button>
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -507,10 +840,14 @@ export const RegistersView = () => {
 
                     {/* Overall Order Status */}
                     <td className="py-4 px-4 align-top space-y-1.5">
-                      <StatusBadge status={inv.status} size="sm" />
-                      {inv.status !== 'DELIVERED' && (
+                      <StatusBadge status={inv.overall_status || inv.status || 'PENDING'} size="sm" />
+                      {((inv.status || inv.overall_status || '').toUpperCase() !== 'DELIVERED' || (inv.services && inv.services.some(s => (s.status || '').toUpperCase() !== 'DELIVERED'))) && (
                         <button
-                          onClick={() => handleMarkDeliveredClick(inv)}
+                          type="button"
+                          onClick={(e) => {
+                            if (e) e.stopPropagation();
+                            setDeliverySettlementInvoice(inv);
+                          }}
                           className="w-full mt-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] flex items-center justify-center gap-1 shadow-xs cursor-pointer transition-smooth"
                         >
                           <Truck className="w-3 h-3" /> Mark Delivered
@@ -520,13 +857,24 @@ export const RegistersView = () => {
 
                     {/* Action link */}
                     <td className="py-4 px-4 text-right align-top">
-                      <button
-                        onClick={() => navigateTo('invoice-detail', { invoiceId: inv.id })}
-                        className="p-1.5 rounded-lg text-[#777777] hover:text-[#202020] dark:hover:text-white hover:bg-white dark:hover:bg-[#1E1E1E] transition-smooth cursor-pointer"
-                        title="View order receipt detail"
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        {!isWorker && (
+                          <button
+                            onClick={() => setOrderToDelete(inv)}
+                            className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-smooth cursor-pointer"
+                            title="Remove Order from Register"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => navigateTo('invoice-detail', { invoiceId: inv.id })}
+                          className="p-1.5 rounded-lg text-[#777777] hover:text-[#202020] dark:hover:text-white hover:bg-white dark:hover:bg-[#1E1E1E] transition-smooth cursor-pointer"
+                          title="View order receipt detail"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -536,115 +884,116 @@ export const RegistersView = () => {
         </div>
       </div>
 
-      {/* ================================================== */}
-      {/* 14. DELIVERY + PAYMENT SETTLEMENT CONFIRMATION MODAL */}
-      {/* ================================================== */}
-      {deliverySettlementInvoice && (
-        <Modal
-          isOpen={true}
-          onClose={() => setDeliverySettlementInvoice(null)}
-          size="sm"
-          maxWidthClass="max-w-md"
-          zIndex={9990}
-        >
-              <div className="flex items-center justify-between pb-3 border-b border-[#E3E3E3] dark:border-[#333333]">
-                <div className="flex items-center gap-2.5 text-emerald-600">
-                  <Truck className="w-5 h-5" />
-                  <h3 className="font-bold text-base text-[#202020] dark:text-white">Delivery & Payment Settlement</h3>
-                </div>
-                <button 
-                  onClick={() => setDeliverySettlementInvoice(null)}
-                  className="text-[#777777] hover:text-[#202020] dark:hover:text-white p-1 rounded-lg"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="space-y-3 text-xs">
-                <p className="font-bold text-sm text-[#202020] dark:text-white">
-                  Has the remaining balance been received for #{deliverySettlementInvoice.id}?
-                </p>
-                
-                <div className="p-4 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] space-y-1.5">
-                  <div className="flex justify-between text-[#777777]">
-                    <span>Customer Name:</span>
-                    <span className="font-bold text-[#202020] dark:text-white">{deliverySettlementInvoice.customerName}</span>
-                  </div>
-                  <div className="flex justify-between text-[#777777]">
-                    <span>Total Order Amount:</span>
-                    <span className="font-semibold text-[#202020] dark:text-white">₹{deliverySettlementInvoice.total}</span>
-                  </div>
-                  <div className="flex justify-between text-[#777777]">
-                    <span>Already Paid:</span>
-                    <span className="font-semibold text-emerald-600">₹{deliverySettlementInvoice.advancePaid}</span>
-                  </div>
-                  <div className="flex justify-between font-bold text-sm pt-2 border-t border-[#E3E3E3] dark:border-[#333333] text-[#B85C5C]">
-                    <span>Remaining Balance:</span>
-                    <span>₹{deliverySettlementInvoice.balance}</span>
-                  </div>
-                </div>
-
-                {/* Payment Mode Selector for Settlement */}
-                <div className="space-y-1 pt-1">
-                  <label className="block text-[11px] font-bold text-[#777777]">Settlement Payment Method</label>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {['Cash', 'UPI', 'Card', 'Net Banking'].map((m) => (
-                      <button
-                        type="button"
-                        key={m}
-                        onClick={() => setSettlementPaymentMode(m)}
-                        className={`py-1.5 px-1 text-[11px] font-bold rounded-xl border transition-smooth truncate ${
-                          settlementPaymentMode === m 
-                            ? 'bg-[#202020] text-white border-[#202020] dark:bg-white dark:text-[#202020]' 
-                            : 'bg-[#F5F5F5] dark:bg-[#252525] border-[#E3E3E3] dark:border-[#333333] text-[#777777]'
-                        }`}
-                      >
-                        {m}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="pt-2 flex flex-col sm:flex-row items-center justify-end gap-2 border-t border-[#E3E3E3] dark:border-[#333333]">
-                <button
-                  type="button"
-                  onClick={() => setDeliverySettlementInvoice(null)}
-                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-semibold text-[#777777] hover:bg-[#F5F5F5] dark:hover:bg-[#252525]"
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleConfirmDeliverWithBalance}
-                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 font-bold text-xs hover:bg-amber-100 cursor-pointer"
-                >
-                  Deliver With Balance
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleConfirmDeliveredAndPaid}
-                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md cursor-pointer"
-                >
-                  Mark Delivered & Paid
-                </button>
-              </div>
-        </Modal>
-      )}
-
-      {/* ================================================== */}
-      {/* PRODUCTION WORKFLOW STATUS MANAGER MODAL */}
-      {/* ================================================== */}
+      {/* Production Workflow Manager Modal */}
       {showStatusManagerModal && (
-        <WorkflowEditorModal 
+        <WorkflowEditorModal
+          isOpen={showStatusManagerModal}
           onClose={() => {
             setShowStatusManagerModal(false);
             setPendingServiceTarget(null);
           }}
+          onStatusCreated={(newStatusName) => {
+            if (pendingServiceTarget && newStatusName) {
+              updateServiceStatus(pendingServiceTarget.invoiceId, pendingServiceTarget.serviceId, newStatusName);
+              setPendingServiceTarget(null);
+            }
+          }}
         />
+      )}
+
+      {/* Delivery + Payment Settlement Modal */}
+      {deliverySettlementInvoice && (
+        <DeliveryPaymentModal
+          isOpen={Boolean(deliverySettlementInvoice)}
+          onClose={() => setDeliverySettlementInvoice(null)}
+          order={deliverySettlementInvoice}
+          onConfirmDelivery={async ({ orderId, amountPaidNow, paymentMode }) => {
+            const selectedOrder = deliverySettlementInvoice;
+            const targetId = selectedOrder?.id || selectedOrder?.dbId || orderId;
+
+            if (deliverOrder) {
+              await deliverOrder(targetId || orderId, amountPaidNow, paymentMode);
+            }
+
+            setDeliverySettlementInvoice(null);
+            const freshOrders = await fetchAllOrders(shopId, currentUser);
+            if (freshOrders) {
+              setOrders(freshOrders);
+            }
+            if (refetchOrders) {
+              await refetchOrders();
+            }
+          }}
+        />
+      )}
+
+      {/* Order Deletion / Removal Confirmation Modal */}
+      {orderToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-[2px] p-4 transition-all duration-200 animate-in fade-in">
+          <div className="relative bg-white dark:bg-[#1E1E1E] rounded-2xl p-5 max-w-sm w-full shadow-xl border border-gray-100 dark:border-[#333333] transform transition-all duration-200 animate-in fade-in zoom-in-95">
+            <button 
+              type="button"
+              onClick={() => setOrderToDelete(null)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-white p-1 rounded-full hover:bg-gray-100 dark:hover:bg-[#282828] transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-3.5 pr-6">
+              <div className="w-9 h-9 rounded-xl bg-orange-100/70 dark:bg-orange-950/60 text-orange-600 dark:text-orange-400 flex items-center justify-center shrink-0">
+                <Trash2 className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-gray-900 dark:text-white">Remove Order from Register</h3>
+                <p className="text-[11px] font-medium text-gray-400 dark:text-[#777777]">Order #{orderToDelete?.invoice_number || orderToDelete?.id}</p>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 dark:bg-[#252525] rounded-xl p-3 border border-gray-100 dark:border-[#333333] mb-4 space-y-1.5 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500 dark:text-[#777777]">Invoice:</span>
+                <span className="text-gray-900 dark:text-white font-semibold">{orderToDelete?.invoice_number || orderToDelete?.id}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500 dark:text-[#777777]">Customer:</span>
+                <span className="text-gray-900 dark:text-white font-medium">{orderToDelete?.customerName || orderToDelete?.customer_name || orderToDelete?.customer?.name || 'Local Customer'}</span>
+              </div>
+              <p className="text-[11px] text-amber-700 dark:text-amber-400 font-normal pt-1.5 border-t border-gray-200/50 dark:border-[#333333] leading-tight">
+                This will hide the order from active register view. It remains saved in customer history.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
+              <button 
+                type="button"
+                onClick={() => setOrderToDelete(null)}
+                className="px-3.5 py-2 text-xs font-semibold text-gray-600 dark:text-[#A0A0A0] bg-gray-100 dark:bg-[#2A2A2A] hover:bg-gray-200 dark:hover:bg-[#333333] active:scale-95 rounded-lg transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button 
+                type="button"
+                onClick={async () => {
+                  const targetId = orderToDelete.dbId || orderToDelete.id;
+                  if (archiveOrderInRegister) {
+                    archiveOrderInRegister(targetId);
+                  }
+                  await removeOrderFromRegister(targetId);
+                  setOrderToDelete(null);
+                  const freshOrders = await fetchAllOrders(shopId, currentUser);
+                  if (freshOrders) {
+                    setOrders(freshOrders);
+                  }
+                }}
+                className="px-3.5 py-2 text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 active:scale-95 rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Confirm & Remove
+              </button>
+            </div>
+
+          </div>
+        </div>
       )}
 
     </div>

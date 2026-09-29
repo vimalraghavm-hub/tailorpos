@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { ShopProvider, useShop } from './context/ShopContext';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { Toast } from './components/common/Toast';
 import { CustomerProfileModal } from './components/modals/CustomerProfileModal';
+import { ApplicationLoadingScreen } from './components/common/ApplicationLoadingScreen';
+import { LoginPage } from './components/auth/LoginPage';
 
 import { DashboardView } from './components/views/DashboardView';
 import { NewInvoiceView } from './components/views/NewInvoiceView';
@@ -15,7 +17,29 @@ import { SettingsView } from './components/views/SettingsView';
 import { WorkersView } from './components/views/WorkersView';
 
 const MainContent = () => {
-  const { currentView } = useShop();
+  const { currentView, userRole, userProfile, navigateTo, hasWorkerPermission, showToast } = useShop();
+
+  // Enforce granular tab permission routing & redirection for WORKER accounts
+  useEffect(() => {
+    if (userRole === 'WORKER') {
+      const allowedTabs = userProfile?.permissions?.tabs;
+      const isTabPermitted = (view) => {
+        if (Array.isArray(allowedTabs)) {
+          if (allowedTabs.includes(view)) return true;
+        }
+        if (view === 'registers' && hasWorkerPermission('VIEW_REGISTERS')) return true;
+        if (view === 'customers' && (hasWorkerPermission('VIEW_CUSTOMER_PROFILE') || hasWorkerPermission('VIEW_CUSTOMER_CONTACT'))) return true;
+        if (view === 'dashboard' && (hasWorkerPermission('VIEW_ASSIGNED_ORDERS') || hasWorkerPermission('VIEW_ALL_ORDERS'))) return true;
+        return false;
+      };
+
+      if (!isTabPermitted(currentView)) {
+        const fallback = ['registers', 'dashboard', 'customers'].find(t => isTabPermitted(t)) || 'registers';
+        showToast("Access Restricted", `Your account does not have access to '${currentView}' tab.`, "warning");
+        navigateTo(fallback);
+      }
+    }
+  }, [currentView, userRole, userProfile]);
 
   const renderView = () => {
     switch (currentView) {
@@ -50,15 +74,43 @@ const MainContent = () => {
   );
 };
 
+const AppBody = () => {
+  const { isAuthLoading, isHydrated, user, currentView, activeProfileCustomerId, closeCustomerProfile, customers } = useShop();
+
+  if (isAuthLoading || (user && !isHydrated)) {
+    return <ApplicationLoadingScreen />;
+  }
+
+  if (!user || currentView === 'login') {
+    return (
+      <>
+        <LoginPage />
+        <Toast />
+      </>
+    );
+  }
+
+  const selectedCustomer = (customers || []).find(c => c && c.id === activeProfileCustomerId);
+
+  return (
+    <div className="flex min-h-screen font-sans bg-[#F5F5F5] dark:bg-[#141414]">
+      <Sidebar />
+      <MainContent />
+      <Toast />
+      {selectedCustomer && (
+        <CustomerProfileModal 
+          customer={selectedCustomer} 
+          onClose={closeCustomerProfile} 
+        />
+      )}
+    </div>
+  );
+};
+
 export function App() {
   return (
     <ShopProvider>
-      <div className="flex min-h-screen font-sans bg-[#F5F5F5] dark:bg-[#141414]">
-        <Sidebar />
-        <MainContent />
-        <Toast />
-        <CustomerProfileModal />
-      </div>
+      <AppBody />
     </ShopProvider>
   );
 }

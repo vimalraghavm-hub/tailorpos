@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, UserPlus, Phone, MapPin, Ruler, Check, AlertTriangle, UserCheck, Edit3 } from 'lucide-react';
+import { X, UserPlus, Phone, MapPin, Ruler, Check, AlertTriangle, UserCheck, Edit3, Star } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
 import { 
   GARMENT_MEASUREMENT_TYPES, 
@@ -38,7 +38,17 @@ export const CustomerModal = ({
   onClose, 
   onCustomerCreated 
 }) => {
-  const { customers, addCustomer, updateCustomer, openCustomerProfile, getCustomerStats, showToast } = useShop();
+  const { 
+    customers, 
+    addCustomer, 
+    updateCustomer, 
+    openCustomerProfile, 
+    getCustomerStats, 
+    showToast,
+    garmentMeasurementTypes = GARMENT_MEASUREMENT_TYPES,
+    garmentMeasurementFields = GARMENT_MEASUREMENT_FIELDS,
+    getDynamicDefaultMeasurements = getDefaultMeasurements
+  } = useShop();
 
   const isEdit = Boolean(customerToEdit);
 
@@ -63,12 +73,16 @@ export const CustomerModal = ({
   const [phoneNumber, setPhoneNumber] = useState(initialParsed.number);
   const [address, setAddress] = useState(customerToEdit ? (customerToEdit.address || '') : '');
   const [notes, setNotes] = useState(customerToEdit ? (customerToEdit.notes || '') : '');
+  const [isFavourite, setIsFavourite] = useState(customerToEdit ? Boolean(customerToEdit.is_favourite) : false);
 
   // Measurement state per category
-  const [activeTab, setActiveTab] = useState('gown');
+  const [activeTab, setActiveTab] = useState(() => (garmentMeasurementTypes && garmentMeasurementTypes[0] ? garmentMeasurementTypes[0].id : 'gown'));
   const [measurements, setMeasurements] = useState(
-    customerToEdit ? JSON.parse(JSON.stringify(customerToEdit.measurements || getDefaultMeasurements())) : getDefaultMeasurements()
+    customerToEdit ? JSON.parse(JSON.stringify(customerToEdit.measurements || getDynamicDefaultMeasurements())) : getDynamicDefaultMeasurements()
   );
+
+  // Submission Guard State
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Duplicate / Autocomplete suggestion dropdown state
   const [duplicateCustomer, setDuplicateCustomer] = useState(null);
@@ -125,7 +139,7 @@ export const CustomerModal = ({
   };
 
   const handlePhoneChange = (val) => {
-    const digitsOnly = val.replace(/\D/g, '');
+    const digitsOnly = val.replace(/\D/g, '').slice(0, 10);
     setPhoneNumber(digitsOnly);
     setShowPhoneDropdown(true);
   };
@@ -149,8 +163,9 @@ export const CustomerModal = ({
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!name.trim() || !phoneNumber.trim()) return;
 
     const phoneErr = validatePhoneLength(countryCode, phoneNumber.trim());
@@ -163,42 +178,54 @@ export const CustomerModal = ({
       return;
     }
 
-    if (isEdit) {
-      const res = updateCustomer(customerToEdit.id, {
+    setIsSubmitting(true);
+    try {
+      if (isEdit) {
+        const res = await updateCustomer(customerToEdit.id, {
+          name: name.trim(),
+          phone: fullPhone,
+          address: address.trim(),
+          notes: notes.trim(),
+          is_favourite: isFavourite,
+          measurements
+        });
+        if (res && res.success !== false) {
+          onClose();
+        }
+        return;
+      }
+
+      // Direct check if exact match exists
+      const existing = customers.find(c => isPhoneMatch(fullPhone, c.phone));
+      if (existing) {
+        handleSelectExistingCustomer(existing);
+        return;
+      }
+
+      const newCust = await addCustomer({
         name: name.trim(),
         phone: fullPhone,
-        address: address.trim(),
+        address: address.trim() || "Local Address",
         notes: notes.trim(),
+        is_favourite: isFavourite,
         measurements
       });
-      if (res && res.success !== false) {
-        onClose();
+
+      if (onCustomerCreated && newCust) {
+        onCustomerCreated(newCust);
       }
-      return;
+      onClose();
+    } catch (err) {
+      console.error("Error creating customer:", err);
+      if (showToast) {
+        showToast("Customer Error", err.message || "Failed to create customer profile", "error");
+      }
+    } finally {
+      setIsSubmitting(false);
     }
-
-    // Direct check if exact match exists
-    const existing = customers.find(c => isPhoneMatch(fullPhone, c.phone));
-    if (existing) {
-      handleSelectExistingCustomer(existing);
-      return;
-    }
-
-    const newCust = addCustomer({
-      name: name.trim(),
-      phone: fullPhone,
-      address: address.trim() || "Local Address",
-      notes: notes.trim(),
-      measurements
-    });
-
-    if (onCustomerCreated && newCust) {
-      onCustomerCreated(newCust);
-    }
-    onClose();
   };
 
-  const activeFields = GARMENT_MEASUREMENT_FIELDS[activeTab] || [];
+  const activeFields = (garmentMeasurementFields && garmentMeasurementFields[activeTab]) || GARMENT_MEASUREMENT_FIELDS[activeTab] || [];
   const currentGarmentData = measurements[activeTab] || {};
 
   return (
@@ -234,14 +261,30 @@ export const CustomerModal = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
+        <form onSubmit={handleSubmit} noValidate className="flex flex-col flex-1 overflow-hidden">
           <div className="p-6 overflow-y-auto space-y-6 flex-1">
 
             {/* Section 1: Customer Information */}
             <div className="space-y-4">
-              <h4 className="font-bold text-xs uppercase tracking-wider text-[#777777] border-b border-[#E3E3E3] dark:border-[#333333] pb-2">
-                Customer Information
-              </h4>
+              <div className="flex items-center justify-between border-b border-[#E3E3E3] dark:border-[#333333] pb-2">
+                <h4 className="font-bold text-xs uppercase tracking-wider text-[#777777]">
+                  Customer Information
+                </h4>
+
+                <button
+                  type="button"
+                  onClick={() => setIsFavourite(!isFavourite)}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold transition-smooth cursor-pointer ${
+                    isFavourite 
+                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-400 border border-amber-300' 
+                      : 'bg-[#F5F5F5] text-[#777777] dark:bg-[#252525] hover:text-[#202020]'
+                  }`}
+                  title="Toggle Favourite Status"
+                >
+                  <Star className={`w-3.5 h-3.5 ${isFavourite ? 'fill-amber-400 text-amber-500' : ''}`} />
+                  {isFavourite ? '⭐ Favourite Client' : 'Mark as Favourite'}
+                </button>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 
@@ -314,13 +357,25 @@ export const CustomerModal = ({
                         type="tel"
                         placeholder="Phone number"
                         value={phoneNumber}
-                        onChange={(e) => handlePhoneChange(e.target.value)}
+                        onChange={(e) => handlePhoneChange(e.target.value.replace(/\D/g, '').slice(0, 10))}
                         onFocus={() => setShowPhoneDropdown(true)}
-                        className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] text-xs font-medium text-[#202020] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#202020]/20"
+                        maxLength={10}
+                        className={`w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#F5F5F5] dark:bg-[#252525] border ${
+                          phoneNumber.length > 0 && phoneNumber.length < 10
+                            ? 'border-red-500 focus:ring-red-500/20'
+                            : 'border-[#E3E3E3] dark:border-[#333333] focus:ring-[#202020]/20'
+                        } text-xs font-medium text-[#202020] dark:text-white focus:outline-none focus:ring-2`}
                         required
                       />
                     </div>
                   </div>
+
+                  {phoneNumber.length > 0 && phoneNumber.length < 10 && (
+                    <p className="text-[11px] font-bold text-red-500 mt-1.5 flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                      Please enter a valid 10-digit mobile number.
+                    </p>
+                  )}
 
                   {/* PHONE AUTOCOMPLETE DROPDOWN */}
                   {showPhoneDropdown && phoneMatches.length > 0 && !isEdit && (
@@ -393,7 +448,7 @@ export const CustomerModal = ({
 
                 {/* Category tabs */}
                 <div className="flex items-center gap-1 p-1 rounded-xl bg-[#F5F5F5] dark:bg-[#282828] border border-[#E3E3E3] dark:border-[#333333] overflow-x-auto">
-                  {GARMENT_MEASUREMENT_TYPES.map(tab => (
+                  {(garmentMeasurementTypes || []).map(tab => (
                     <button
                       type="button"
                       key={tab.id}
@@ -419,7 +474,7 @@ export const CustomerModal = ({
                     onChange={() => handleSuppliedGarmentToggle(activeTab)}
                     className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
                   />
-                  <span>Follow measurements from customer supplied garment / sample ({GARMENT_MEASUREMENT_TYPES.find(t => t.id === activeTab)?.label})</span>
+                  <span>Follow measurements from customer supplied garment / sample ({garmentMeasurementTypes.find(t => t.id === activeTab)?.label})</span>
                 </label>
               </div>
 
@@ -471,10 +526,22 @@ export const CustomerModal = ({
 
             <button
               type="submit"
-              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#202020] dark:bg-white text-white dark:text-[#202020] font-bold text-xs shadow-md hover:opacity-90 transition-smooth cursor-pointer"
+              disabled={isSubmitting}
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#202020] dark:bg-white text-white dark:text-[#202020] font-bold text-xs shadow-md transition-smooth ${
+                isSubmitting ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-90 cursor-pointer'
+              }`}
             >
-              <Check className="w-4 h-4" />
-              {isEdit ? 'Save Profile Changes' : 'Create Customer Profile'}
+              {isSubmitting ? (
+                <>
+                  <span className="w-3.5 h-3.5 border-2 border-white dark:border-[#202020] border-t-transparent rounded-full animate-spin"></span>
+                  <span>{isEdit ? 'Saving Profile...' : 'Creating Customer...'}</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" />
+                  <span>{isEdit ? 'Save Profile Changes' : 'Create Customer Profile'}</span>
+                </>
+              )}
             </button>
           </div>
         </form>

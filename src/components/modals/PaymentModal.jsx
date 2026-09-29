@@ -8,17 +8,27 @@ export const PaymentModal = ({ invoice, onClose }) => {
   const { recordPayment } = useShop();
   const [amount, setAmount] = useState(invoice ? invoice.balance : 0);
   const [paymentMode, setPaymentMode] = useState('UPI');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useModalDismiss(onClose, Boolean(invoice));
 
   if (!invoice) return null;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
     const payVal = parseFloat(amount);
     if (payVal > 0) {
-      recordPayment(invoice.id, payVal, paymentMode);
-      onClose();
+      setIsSubmitting(true);
+      try {
+        await recordPayment(invoice.id, payVal, paymentMode);
+        onClose();
+      } catch (err) {
+        console.error("Payment submit error:", err);
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -121,10 +131,11 @@ export const PaymentModal = ({ invoice, onClose }) => {
             </button>
             <button
               type="submit"
-              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md"
+              disabled={isSubmitting}
+              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md disabled:opacity-50"
             >
               <CheckCircle2 className="w-4 h-4" />
-              Save Payment
+              {isSubmitting ? 'Saving...' : 'Save Payment'}
             </button>
           </div>
 

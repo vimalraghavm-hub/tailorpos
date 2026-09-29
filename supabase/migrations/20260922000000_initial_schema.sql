@@ -26,7 +26,7 @@ END $$;
 
 -- 2. TABLE 1: shops
 CREATE TABLE IF NOT EXISTS public.shops (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
     phone VARCHAR(50) NOT NULL,
     email VARCHAR(255),
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS public.shops (
 
 -- 3. TABLE 2: profiles
 CREATE TABLE IF NOT EXISTS public.profiles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     auth_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
     shop_id UUID NOT NULL REFERENCES public.shops(id) ON DELETE CASCADE,
     full_name VARCHAR(255) NOT NULL,
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 
 -- 4. TABLE 3: customers
 CREATE TABLE IF NOT EXISTS public.customers (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_id UUID NOT NULL REFERENCES public.shops(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     phone VARCHAR(50) NOT NULL,
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS public.customers (
 
 -- 5. TABLE 4: measurements
 CREATE TABLE IF NOT EXISTS public.measurements (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_id UUID NOT NULL REFERENCES public.shops(id) ON DELETE CASCADE,
     customer_id UUID NOT NULL REFERENCES public.customers(id) ON DELETE CASCADE,
     garment_type VARCHAR(50) NOT NULL, -- GOWN, BLOUSE, TOP, SHIRT, PANT, CUSTOM
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS public.measurements (
 
 -- 6. TABLE 5: services
 CREATE TABLE IF NOT EXISTS public.services (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_id UUID NOT NULL REFERENCES public.shops(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     description TEXT,
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS public.services (
 
 -- 7. TABLE 6: orders
 CREATE TABLE IF NOT EXISTS public.orders (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_id UUID NOT NULL REFERENCES public.shops(id) ON DELETE CASCADE,
     customer_id UUID NOT NULL REFERENCES public.customers(id) ON DELETE RESTRICT,
     invoice_number VARCHAR(50) NOT NULL,
@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS public.orders (
 
 -- 8. TABLE 7: order_items
 CREATE TABLE IF NOT EXISTS public.order_items (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_id UUID NOT NULL REFERENCES public.shops(id) ON DELETE CASCADE,
     order_id UUID NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
     service_id UUID REFERENCES public.services(id) ON DELETE SET NULL,
@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS public.order_items (
 
 -- 9. TABLE 8: payments
 CREATE TABLE IF NOT EXISTS public.payments (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_id UUID NOT NULL REFERENCES public.shops(id) ON DELETE CASCADE,
     order_id UUID NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
     amount NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
 
 -- 10. TABLE 9: production_statuses
 CREATE TABLE IF NOT EXISTS public.production_statuses (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_id UUID NOT NULL REFERENCES public.shops(id) ON DELETE CASCADE,
     name VARCHAR(50) NOT NULL,
     sort_order INT NOT NULL DEFAULT 0,
@@ -163,7 +163,7 @@ CREATE TABLE IF NOT EXISTS public.production_statuses (
 
 -- 11. TABLE 10: order_status_history
 CREATE TABLE IF NOT EXISTS public.order_status_history (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_id UUID NOT NULL REFERENCES public.shops(id) ON DELETE CASCADE,
     order_id UUID NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
     order_item_id UUID REFERENCES public.order_items(id) ON DELETE CASCADE,
@@ -176,7 +176,7 @@ CREATE TABLE IF NOT EXISTS public.order_status_history (
 
 -- 12. TABLE 11: expense_categories
 CREATE TABLE IF NOT EXISTS public.expense_categories (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_id UUID NOT NULL REFERENCES public.shops(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT true,
@@ -186,7 +186,7 @@ CREATE TABLE IF NOT EXISTS public.expense_categories (
 
 -- 13. TABLE 12: expenses
 CREATE TABLE IF NOT EXISTS public.expenses (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_id UUID NOT NULL REFERENCES public.shops(id) ON DELETE CASCADE,
     category_id UUID REFERENCES public.expense_categories(id) ON DELETE SET NULL,
     amount NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
@@ -200,7 +200,7 @@ CREATE TABLE IF NOT EXISTS public.expenses (
 
 -- 14. TABLE 13: notifications
 CREATE TABLE IF NOT EXISTS public.notifications (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_id UUID NOT NULL REFERENCES public.shops(id) ON DELETE CASCADE,
     customer_id UUID REFERENCES public.customers(id) ON DELETE SET NULL,
     order_id UUID REFERENCES public.orders(id) ON DELETE SET NULL,
@@ -216,7 +216,7 @@ CREATE TABLE IF NOT EXISTS public.notifications (
 
 -- 15. TABLE 14: shop_settings
 CREATE TABLE IF NOT EXISTS public.shop_settings (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_id UUID NOT NULL REFERENCES public.shops(id) ON DELETE CASCADE,
     setting_key VARCHAR(100) NOT NULL,
     setting_value JSONB NOT NULL DEFAULT '{}'::jsonb,

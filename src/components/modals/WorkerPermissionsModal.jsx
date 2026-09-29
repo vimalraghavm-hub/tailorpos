@@ -5,7 +5,7 @@ import { Modal } from '../common/Modal';
 import { useModalDismiss } from '../../utils/modalUtils';
 
 export const WorkerPermissionsModal = ({ worker, onClose }) => {
-  const { updateWorkerPermissions, showToast } = useShop();
+  const { updateWorkerPermissions } = useShop();
   const [permissions, setPermissions] = useState(worker?.permissions || {});
   const [isSaving, setIsSaving] = useState(false);
 
@@ -19,7 +19,24 @@ export const WorkerPermissionsModal = ({ worker, onClose }) => {
 
   if (!worker) return null;
 
-  const togglePermission = (key) => {
+  const toggleTabPermission = (tabId) => {
+    setPermissions(prev => {
+      const currentTabs = Array.isArray(prev.tabs) ? prev.tabs : ['registers', 'dashboard'];
+      const updatedTabs = currentTabs.includes(tabId)
+        ? currentTabs.filter(t => t !== tabId)
+        : [...currentTabs, tabId];
+
+      const updated = { ...prev, tabs: updatedTabs };
+
+      if (tabId === 'registers') updated.VIEW_REGISTERS = updatedTabs.includes('registers');
+      if (tabId === 'customers') updated.VIEW_CUSTOMER_PROFILE = updatedTabs.includes('customers');
+      if (tabId === 'dashboard') updated.VIEW_ASSIGNED_ORDERS = updatedTabs.includes('dashboard');
+
+      return updated;
+    });
+  };
+
+  const togglePermissionKey = (key) => {
     setPermissions(prev => ({
       ...prev,
       [key]: !prev[key]
@@ -36,6 +53,12 @@ export const WorkerPermissionsModal = ({ worker, onClose }) => {
     }
   };
 
+  const availableTabs = [
+    { id: 'registers', label: 'Registers Tab' },
+    { id: 'dashboard', label: 'Dashboard Tab' },
+    { id: 'customers', label: 'Customers Tab' }
+  ];
+
   const permissionList = [
     { key: 'VIEW_REGISTERS', label: 'View Production Registers', desc: 'Allows worker to see registers grid view' },
     { key: 'VIEW_ASSIGNED_ORDERS', label: 'View Assigned Orders Only', desc: 'Restrict order list strictly to orders assigned to this worker' },
@@ -48,6 +71,8 @@ export const WorkerPermissionsModal = ({ worker, onClose }) => {
     { key: 'SEND_WHATSAPP', label: 'Dispatch WhatsApp Notifications', desc: 'Allows worker to trigger WhatsApp customer messages' },
     { key: 'MANAGE_WORKFLOW', label: 'Manage Production Workflow', desc: 'Allows worker to reorder/configure global status pipeline' }
   ];
+
+  const currentTabs = Array.isArray(permissions.tabs) ? permissions.tabs : ['registers', 'dashboard'];
 
   return (
     <Modal
@@ -67,7 +92,7 @@ export const WorkerPermissionsModal = ({ worker, onClose }) => {
             <h3 className="font-bold text-base text-[#202020] dark:text-white">
               Edit Permissions: {worker.full_name}
             </h3>
-            <p className="text-xs text-[#777777]">Configure granular access rights for {worker.email}</p>
+            <p className="text-xs text-[#777777]">Configure tab routing and granular access rights for {worker.email}</p>
           </div>
         </div>
         <button
@@ -80,13 +105,39 @@ export const WorkerPermissionsModal = ({ worker, onClose }) => {
 
       {/* Body */}
       <div className="p-6 space-y-4">
-        <div className="grid grid-cols-1 gap-2.5 max-h-[360px] overflow-y-auto pr-1">
+        {/* Tab Routing */}
+        <div className="space-y-2 pb-3 border-b border-[#E3E3E3] dark:border-[#333333]">
+          <span className="font-bold text-xs text-[#202020] dark:text-white">Permitted Navigation Tabs (`permissions.tabs`):</span>
+          <div className="flex flex-wrap gap-2">
+            {availableTabs.map((tab) => {
+              const isSelected = currentTabs.includes(tab.id);
+              return (
+                <button
+                  type="button"
+                  key={tab.id}
+                  onClick={() => toggleTabPermission(tab.id)}
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-smooth cursor-pointer ${
+                    isSelected
+                      ? 'bg-purple-600 border-purple-600 text-white'
+                      : 'bg-[#F9FAFB] dark:bg-[#252525] border-[#E5E7EB] dark:border-[#333333] text-[#777777]'
+                  }`}
+                >
+                  {isSelected && <Check className="w-3.5 h-3.5" />}
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Feature Flags */}
+        <div className="grid grid-cols-1 gap-2.5 max-h-[300px] overflow-y-auto pr-1">
           {permissionList.map((perm) => {
             const isEnabled = Boolean(permissions[perm.key]);
             return (
               <div
                 key={perm.key}
-                onClick={() => togglePermission(perm.key)}
+                onClick={() => togglePermissionKey(perm.key)}
                 className={`p-3 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer transition-smooth ${
                   isEnabled
                     ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-300 dark:border-purple-800 text-purple-900 dark:text-purple-200'

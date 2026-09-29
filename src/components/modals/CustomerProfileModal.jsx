@@ -19,83 +19,318 @@ import {
   Scissors,
   Layers,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  Send,
+  Printer
 } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
 import { GARMENT_MEASUREMENT_TYPES, GARMENT_MEASUREMENT_FIELDS } from '../../data/measurementDefinitions';
 import { CustomerModal } from './CustomerModal';
 import { WorkflowEditorModal } from './WorkflowEditorModal';
+import { PrintInvoiceModal } from './PrintInvoiceModal';
 import { Modal } from '../common/Modal';
 import { useModalDismiss } from '../../utils/modalUtils';
 
-export const CustomerProfileModal = () => {
+export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnClose }) => {
   const { 
     customers, 
     invoices, 
+    measurementTemplates,
     activeProfileCustomerId, 
     closeCustomerProfile, 
     navigateTo, 
     saveCustomerMeasurements, 
     addCustomer,
+    updateCustomer,
     deleteCustomer,
+    deleteOrder,
     getCustomerStats,
-    showToast
+    recordPayment,
+    settlePayment,
+    refetchOrders,
+    settings,
+    showToast,
+    refreshCustomerProfileData,
+    userRole = 'OWNER',
+    hasWorkerPermission,
+    garmentMeasurementTypes = GARMENT_MEASUREMENT_TYPES,
+    garmentMeasurementFields = GARMENT_MEASUREMENT_FIELDS
   } = useShop();
+
+  const handleClose = propOnClose || closeCustomerProfile;
+  const targetCustomerId = propCustomer?.id || activeProfileCustomerId;
+  const customer = propCustomer || (customers || []).find(c => c && c.id === targetCustomerId);
 
   // Active popup state inside profile hub: null | 'measurements' | 'orders' | 'order-detail'
   const [activePopup, setActivePopup] = useState(null);
   const [selectedOrderDetailId, setSelectedOrderDetailId] = useState(null);
   const [showEditCustomerModal, setShowEditCustomerModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [orderToDelete, setOrderToDelete] = useState(null);
+  const [printInvoiceOrder, setPrintInvoiceOrder] = useState(null);
+  const [isSubmittingSettle, setIsSubmittingSettle] = useState(false);
 
   // Editing state for measurements popup
   const [isEditingMeasurements, setIsEditingMeasurements] = useState(false);
-  const [activeGarmentTab, setActiveGarmentTab] = useState('gown');
+  const [activeGarmentTab, setActiveGarmentTab] = useState(() => (garmentMeasurementTypes && garmentMeasurementTypes[0] ? garmentMeasurementTypes[0].id : 'gown'));
   
   // Local state for measurements edit mode
   const [tempMeasurements, setTempMeasurements] = useState({});
   const [tempNotes, setTempNotes] = useState('');
 
   // ESC key dismiss for main modal
-  useModalDismiss(closeCustomerProfile, Boolean(activeProfileCustomerId) && !activePopup && !showEditCustomerModal);
+  useModalDismiss(handleClose, Boolean(targetCustomerId) && !activePopup && !showEditCustomerModal);
 
   // ESC key dismiss for sub-popups
   useModalDismiss(() => setActivePopup(null), Boolean(activePopup));
 
-  if (!activeProfileCustomerId) return null;
+  const calculateCustomerBalance = (ordersArray = []) => {
+    const totalSpent = ordersArray.reduce((acc, order) => {
+      return acc + Number(order.total_amount || order.grand_total || order.total || order.amount || 0);
+    }, 0);
 
-  const customer = (customers || []).find(c => c && c.id === activeProfileCustomerId);
+    const outstandingDue = ordersArray.reduce((acc, order) => {
+      const isCancelled = (order.status || order.overall_status || '').toUpperCase() === 'CANCELLED';
+      if (isCancelled) return acc;
+
+      const total = Number(order.total_amount || order.grand_total || order.total || order.amount || 0);
+      const paid = Number(order.advance_paid || order.paid_amount || order.total_paid || order.advancePaid || 0);
+      const due = Number(order.balance_amount !== undefined ? order.balance_amount : (order.balance !== undefined ? order.balance : Math.max(0, total - paid)));
+
+      return acc + (due > 0 ? due : 0);
+    }, 0);
+
+    return { totalSpent, outstandingDue };
+  };
+
+  const refreshProfileData = React.useCallback(async () => {
+    if (targetCustomerId) {
+      if (refreshCustomerProfileData) {
+        await refreshCustomerProfileData(targetCustomerId);
+      }
+      if (refetchOrders) {
+        await refetchOrders();
+      }
+    }
+  }, [targetCustomerId, refreshCustomerProfileData, refetchOrders]);
+
+  // Trigger real-time fresh fetch from database on opening profile
+  React.useEffect(() => {
+    refreshProfileData();
+  }, [targetCustomerId, refreshProfileData]);
+
   if (!customer) return null;
 
-  const { customerOrders, totalOrders, totalSpent, balance, measurementsCount } = getCustomerStats(customer);
+  const isWorker = userRole === 'WORKER';
+  const canViewContact = !isWorker || (hasWorkerPermission && hasWorkerPermission('VIEW_CUSTOMER_CONTACT'));
+  const displayPhone = canViewContact ? (customer?.phone || '') : '••• Restricted •••';
+  const displayAddress = canViewContact ? (customer?.address || 'Local Customer') : '••• Restricted •••';
+
+  const { customerOrders, totalOrders, measurementsCount } = getCustomerStats(customer);
+  const { totalSpent, outstandingDue: balance } = calculateCustomerBalance(customerOrders);
 
   const handleStartNewOrder = () => {
     closeCustomerProfile();
     navigateTo('new-invoice', { customerId: customer.id });
   };
 
+  const getDynamicGarmentTabs = () => {
+    const tabsMap = new Map();
+
+    // 1. Base system & active presets from ShopContext
+    (garmentMeasurementTypes || GARMENT_MEASUREMENT_TYPES || []).forEach(t => {
+      if (t && t.id) {
+        const idLower = String(t.id).toLowerCase();
+        tabsMap.set(idLower, {
+          id: idLower,
+          label: t.label || (String(t.id).charAt(0).toUpperCase() + String(t.id).slice(1))
+        });
+      }
+    });
+
+    // 2. Settings / measurementTemplates custom presets
+    if (measurementTemplates && Array.isArray(measurementTemplates)) {
+      measurementTemplates.forEach(tpl => {
+        const key = tpl.slug || tpl.id || tpl.garment_type || tpl.category || tpl.name;
+        if (key && tpl.name) {
+          const idLower = String(key).toLowerCase();
+          tabsMap.set(idLower, {
+            id: idLower,
+            label: tpl.name
+          });
+        }
+      });
+    }
+
+    // 3. Settings measurement_presets / garment_categories
+    if (settings) {
+      const presets = settings.measurement_presets || settings.garment_categories || {};
+      Object.keys(presets).forEach(k => {
+        if (k) {
+          const idLower = String(k).toLowerCase();
+          if (!tabsMap.has(idLower)) {
+            tabsMap.set(idLower, {
+              id: idLower,
+              label: String(k).charAt(0).toUpperCase() + String(k).slice(1)
+            });
+          }
+        }
+      });
+    }
+
+    // 4. Any existing category keys in customer.measurements
+    const custMeas = customer?.measurements || {};
+    Object.keys(custMeas).forEach(k => {
+      if (k) {
+        const idLower = String(k).toLowerCase();
+        if (!tabsMap.has(idLower)) {
+          tabsMap.set(idLower, {
+            id: idLower,
+            label: String(k).charAt(0).toUpperCase() + String(k).slice(1)
+          });
+        }
+      }
+    });
+
+    const tabsList = Array.from(tabsMap.values());
+    const customTab = tabsList.find(t => t.id === 'custom');
+    const otherTabs = tabsList.filter(t => t.id !== 'custom');
+    return customTab ? [...otherTabs, customTab] : tabsList;
+  };
+
+  const dynamicGarmentTabs = getDynamicGarmentTabs();
+
+  const getFieldsForTab = (tabId) => {
+    const tabLower = String(tabId || '').toLowerCase();
+    const fieldsMap = new Map();
+
+    const staticFields = (garmentMeasurementFields && (garmentMeasurementFields[tabLower] || garmentMeasurementFields[tabId])) ||
+                         GARMENT_MEASUREMENT_FIELDS[tabLower] ||
+                         GARMENT_MEASUREMENT_FIELDS[tabId] || [];
+
+    staticFields.forEach(f => {
+      if (f && f.key) {
+        fieldsMap.set(f.key.toLowerCase(), { key: f.key, label: f.label || f.key });
+      }
+    });
+
+    if (measurementTemplates && Array.isArray(measurementTemplates)) {
+      const matchedTpl = measurementTemplates.find(tpl => {
+        const gType = (tpl.garment_type || tpl.category || tpl.id || tpl.name || '').toLowerCase();
+        return gType === tabLower;
+      });
+      if (matchedTpl && Array.isArray(matchedTpl.fields)) {
+        matchedTpl.fields.forEach(f => {
+          const key = (f.key || f.name || f.label || '').toLowerCase();
+          if (key && !fieldsMap.has(key)) {
+            fieldsMap.set(key, {
+              key: f.key || key,
+              label: f.label || f.name || key.charAt(0).toUpperCase() + key.slice(1)
+            });
+          }
+        });
+      }
+    }
+
+    if (settings && settings.measurement_presets) {
+      const presetFields = settings.measurement_presets[tabLower] || settings.measurement_presets[tabId];
+      if (Array.isArray(presetFields)) {
+        presetFields.forEach(f => {
+          const key = (typeof f === 'string' ? f : (f.key || f.name || f.label || '')).toLowerCase();
+          if (key && !fieldsMap.has(key)) {
+            fieldsMap.set(key, {
+              key: typeof f === 'string' ? f : (f.key || key),
+              label: typeof f === 'string' ? f.charAt(0).toUpperCase() + f.slice(1) : (f.label || f.name || key)
+            });
+          }
+        });
+      }
+    }
+
+    const currentData = (tempMeasurements && (tempMeasurements[tabLower] || tempMeasurements[tabId])) ||
+                        (customer?.measurements && (customer.measurements[tabLower] || customer.measurements[tabId])) || {};
+
+    Object.keys(currentData).forEach(k => {
+      if (k !== 'suppliedGarment' && k !== '_supplied' && k !== 'notes') {
+        const kLower = k.toLowerCase();
+        if (!fieldsMap.has(kLower)) {
+          fieldsMap.set(kLower, {
+            key: k,
+            label: k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+          });
+        }
+      }
+    });
+
+    if (fieldsMap.size === 0 && (tabLower === 'trouser' || tabLower === 'pant')) {
+      [
+        { key: 'length', label: 'Length' },
+        { key: 'waist', label: 'Waist' },
+        { key: 'hip', label: 'Hip' },
+        { key: 'thigh', label: 'Thigh' },
+        { key: 'bottom', label: 'Bottom' },
+        { key: 'knee', label: 'Knee' }
+      ].forEach(f => fieldsMap.set(f.key, f));
+    }
+
+    return Array.from(fieldsMap.values());
+  };
+
   const handleOpenMeasurements = () => {
     setTempMeasurements(JSON.parse(JSON.stringify(customer.measurements || {})));
     setTempNotes(customer.notes || '');
     setIsEditingMeasurements(false);
-    setActiveGarmentTab('gown');
+    const tabs = getDynamicGarmentTabs();
+    setActiveGarmentTab(tabs && tabs[0] ? tabs[0].id : 'gown');
     setActivePopup('measurements');
   };
 
-  const handleSaveMeasurements = () => {
-    GARMENT_MEASUREMENT_TYPES.forEach(type => {
-      const typeData = tempMeasurements[type.id] || {};
-      saveCustomerMeasurements(customer.id, type.id, typeData, tempNotes);
+  const handleSaveMeasurements = async () => {
+    const tabs = getDynamicGarmentTabs();
+    const mergedMeasurements = { ...(customer.measurements || {}), ...(tempMeasurements || {}) };
+
+    // Update general customer notes on customer row separately if changed
+    if (updateCustomer && tempNotes !== customer.notes) {
+      await updateCustomer(customer.id, { notes: tempNotes });
+    }
+
+    const allCategoryKeys = new Set([
+      ...tabs.map(t => t.id.toLowerCase()),
+      ...Object.keys(mergedMeasurements).map(k => k.toLowerCase())
+    ]);
+
+    allCategoryKeys.forEach(catId => {
+      const catLower = catId.toLowerCase();
+      const rawData = (tempMeasurements && (tempMeasurements[catLower] || tempMeasurements[catId])) ||
+                      (customer.measurements && (customer.measurements[catLower] || customer.measurements[catId])) || {};
+
+      // Sanitize measurement payload cleanly
+      const sanitizedCatData = {};
+      const garmentNotes = rawData.notes || '';
+      const isSupplied = Boolean(rawData.suppliedGarment || rawData._supplied);
+
+      Object.entries(rawData).forEach(([k, v]) => {
+        if (k !== 'notes' && k !== 'suppliedGarment' && k !== '_supplied') {
+          sanitizedCatData[k] = v;
+        }
+      });
+
+      if (garmentNotes) sanitizedCatData.notes = garmentNotes;
+      if (isSupplied) sanitizedCatData.suppliedGarment = true;
+
+      saveCustomerMeasurements(customer.id, catLower, sanitizedCatData, garmentNotes);
     });
+
     setIsEditingMeasurements(false);
     showToast("Measurements Updated", `Saved latest reusable measurements for ${customer.name}`, "success");
   };
 
   const handleMeasurementFieldChange = (garmentId, key, val) => {
+    const garmentLower = (garmentId || '').toLowerCase();
     setTempMeasurements(prev => ({
       ...prev,
-      [garmentId]: {
-        ...(prev[garmentId] || {}),
+      [garmentLower]: {
+        ...(prev[garmentLower] || prev[garmentId] || {}),
         [key]: val
       }
     }));
@@ -138,25 +373,41 @@ export const CustomerProfileModal = () => {
 
     Object.entries(measurementsObj).forEach(([garment, fields]) => {
       if (!fields || typeof fields !== 'object') return;
+      const lowerGarment = garment.toLowerCase();
+
       if (fields.suppliedGarment) {
-        result[garment] = { _supplied: true };
+        result[lowerGarment] = { _supplied: true };
         return;
       }
       const filledFields = {};
       Object.entries(fields).forEach(([key, val]) => {
-        if (key !== 'suppliedGarment' && val !== undefined && val !== null && String(val).trim() !== '' && String(val).trim() !== '0' && String(val).trim() !== '-') {
-          filledFields[key] = val;
+        if (key !== 'suppliedGarment' && val !== undefined && val !== null) {
+          const strVal = String(val).trim();
+          if (strVal !== '' && strVal !== '0' && strVal !== '-') {
+            filledFields[key] = strVal;
+          }
         }
       });
       if (Object.keys(filledFields).length > 0) {
-        result[garment] = filledFields;
+        result[lowerGarment] = filledFields;
       }
     });
 
     return result;
   };
 
-  const filledCustomerMeasurements = getFilledMeasurements(customer.measurements);
+  let filledCustomerMeasurements = getFilledMeasurements(customer.measurements);
+
+  // Fallback UI rendering: If customer profile measurements yield no filled fields, extract from latest order snapshot
+  if (Object.keys(filledCustomerMeasurements).length === 0 && customerOrders && customerOrders.length > 0) {
+    const latestOrderWithMeas = customerOrders.find(ord => {
+      const filled = getFilledMeasurements(ord.measurements);
+      return Object.keys(filled).length > 0;
+    });
+    if (latestOrderWithMeas) {
+      filledCustomerMeasurements = getFilledMeasurements(latestOrderWithMeas.measurements);
+    }
+  }
 
   return (
     <>
@@ -171,14 +422,14 @@ export const CustomerProfileModal = () => {
         <div className="p-6 border-b border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between bg-[#F5F5F5]/60 dark:bg-[#252525]/60">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-2xl bg-[#202020] text-white flex items-center justify-center font-bold text-lg shadow-sm">
-              {customer.name.slice(0, 2).toUpperCase()}
+              {(customer?.name || 'Customer').trim().slice(0, 2).toUpperCase()}
             </div>
             <div>
               <h2 className="text-xl font-bold text-[#202020] dark:text-white leading-tight">
-                {customer.name.toUpperCase()}
+                {(customer?.name || 'Customer').toUpperCase()}
               </h2>
               <p className="text-xs text-[#777777] font-mono mt-0.5">
-                {customer.phone} • {customer.address || 'Local Customer'}
+                {displayPhone} • {displayAddress}
               </p>
             </div>
           </div>
@@ -326,15 +577,14 @@ export const CustomerProfileModal = () => {
 
             {customerOrders.length > 0 ? (
               <div className="space-y-2">
-                {customerOrders.slice(0, 3).map(order => (
+                {customerOrders.slice(0, 5).map(order => (
                   <div
                     key={order.id}
-                    onClick={() => handleOpenOrderDetail(order.id)}
-                    className="p-3.5 rounded-2xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] hover:border-[#202020]/30 transition-smooth cursor-pointer flex items-center justify-between text-xs"
+                    className="p-3.5 rounded-2xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] hover:border-[#202020]/30 transition-smooth flex items-center justify-between text-xs"
                   >
                     <div>
                       <div className="flex items-center gap-2 font-bold text-[#202020] dark:text-white">
-                        <span>{order.id}</span>
+                        <span onClick={() => handleOpenOrderDetail(order.id)} className="hover:underline cursor-pointer">{order.id}</span>
                         <span className="text-[#777777] font-normal">• {order.date}</span>
                         <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] border ${getStatusBadgeClass(order.status)}`}>
                           {order.status || 'PENDING'}
@@ -345,11 +595,59 @@ export const CustomerProfileModal = () => {
                       </p>
                     </div>
 
-                    <div className="text-right">
-                      <span className="font-bold text-sm text-[#202020] dark:text-white block">₹{order.total}</span>
-                      <span className={`text-[10px] font-bold ${order.balance > 0 ? 'text-[#B85C5C]' : 'text-emerald-600'}`}>
-                        {order.balance > 0 ? `Due: ₹${order.balance}` : 'Paid'}
-                      </span>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <span className="font-bold text-sm text-[#202020] dark:text-white block">₹{order.total}</span>
+                        {(() => {
+                          const tot = Number(order.total || order.total_amount || 0);
+                          const pd = Number(order.advancePaid || order.total_paid || order.paid_amount || order.advance_paid || 0);
+                          const pending = Math.max(0, order.balance !== undefined ? Number(order.balance) : (order.balance_amount !== undefined ? Number(order.balance_amount) : (tot - pd)));
+
+                          if (pending <= 0) {
+                            return (
+                              <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full inline-block mt-0.5">
+                                Paid
+                              </span>
+                            );
+                          }
+
+                          return (
+                            <span className="text-xs font-semibold text-amber-600 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-full inline-block mt-0.5">
+                              Due: ₹{pending}
+                            </span>
+                          );
+                        })()}
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenOrderDetail(order.id)}
+                          className="px-2.5 py-1 rounded-lg bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] text-[11px] font-semibold text-[#202020] dark:text-white hover:bg-[#EEEEEE] cursor-pointer"
+                          title="View Order Details"
+                        >
+                          View
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            closeCustomerProfile();
+                            navigateTo('new-invoice', { orderToEdit: order });
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[11px] font-semibold hover:bg-emerald-100 cursor-pointer"
+                          title="Edit Order"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setOrderToDelete(order)}
+                          className="p-1 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer"
+                          title="Delete Order"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -417,12 +715,13 @@ export const CustomerProfileModal = () => {
               
               {/* Category tabs */}
               <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-[#F5F5F5] dark:bg-[#282828] border border-[#E3E3E3] dark:border-[#333333] overflow-x-auto">
-                {GARMENT_MEASUREMENT_TYPES.map(tab => (
+                {dynamicGarmentTabs.map(tab => (
                   <button
                     key={tab.id}
+                    type="button"
                     onClick={() => setActiveGarmentTab(tab.id)}
                     className={`flex-1 min-w-[70px] py-2 px-3 text-xs font-bold rounded-xl transition-smooth whitespace-nowrap cursor-pointer ${
-                      activeGarmentTab === tab.id
+                      (activeGarmentTab || '').toLowerCase() === tab.id
                         ? 'bg-white dark:bg-[#1E1E1E] text-[#202020] dark:text-white shadow-xs'
                         : 'text-[#777777] hover:text-[#202020] dark:hover:text-white'
                     }`}
@@ -436,7 +735,7 @@ export const CustomerProfileModal = () => {
               {isEditingMeasurements ? (
                 /* EDIT MODE */
                 <div className="space-y-4">
-                  {activeGarmentTab === 'custom' ? (
+                  {(activeGarmentTab || '').toLowerCase() === 'custom' ? (
                     <div className="space-y-1.5">
                       <label className="block text-xs font-bold text-[#777777] uppercase">Custom Fitting Remarks</label>
                       <textarea
@@ -454,33 +753,39 @@ export const CustomerProfileModal = () => {
                         <label className="flex items-center gap-2 font-bold text-xs text-[#202020] dark:text-white cursor-pointer select-none">
                           <input
                             type="checkbox"
-                            checked={Boolean(tempMeasurements[activeGarmentTab]?.suppliedGarment)}
-                            onChange={(e) => handleMeasurementFieldChange(activeGarmentTab, 'suppliedGarment', e.target.checked)}
+                            checked={Boolean(tempMeasurements[(activeGarmentTab || '').toLowerCase()]?.suppliedGarment || tempMeasurements[activeGarmentTab]?.suppliedGarment)}
+                            onChange={(e) => handleMeasurementFieldChange((activeGarmentTab || '').toLowerCase(), 'suppliedGarment', e.target.checked)}
                             className="w-4 h-4 rounded text-emerald-600 accent-emerald-600 cursor-pointer"
                           />
                           <span>Follow customer measurements</span>
                         </label>
                       </div>
 
-                      {Boolean(tempMeasurements[activeGarmentTab]?.suppliedGarment) ? (
+                      {Boolean(tempMeasurements[(activeGarmentTab || '').toLowerCase()]?.suppliedGarment || tempMeasurements[activeGarmentTab]?.suppliedGarment) ? (
                         <div className="p-5 text-center rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800 text-xs font-bold text-emerald-700 dark:text-emerald-400 flex items-center justify-center gap-2 animate-fade-in">
                           <Check className="w-5 h-5 text-emerald-600 shrink-0" />
                           <span>Follow customer measurements</span>
                         </div>
                       ) : (
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                          {(GARMENT_MEASUREMENT_FIELDS[activeGarmentTab] || []).map(f => (
-                            <div key={f.key} className="p-3 rounded-xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] space-y-1">
-                              <span className="text-[10px] font-bold text-[#777777] uppercase block">{f.label}</span>
-                              <input
-                                type="text"
-                                placeholder="0"
-                                value={(tempMeasurements[activeGarmentTab] && tempMeasurements[activeGarmentTab][f.key]) || ''}
-                                onChange={(e) => handleMeasurementFieldChange(activeGarmentTab, f.key, e.target.value)}
-                                className="w-full px-2 py-1 rounded-lg text-xs font-bold bg-white dark:bg-[#1E1E1E] text-[#202020] dark:text-white border border-[#E3E3E3] dark:border-[#333333] focus:outline-none"
-                              />
-                            </div>
-                          ))}
+                          {getFieldsForTab(activeGarmentTab).map(f => {
+                            const tabLower = (activeGarmentTab || '').toLowerCase();
+                            const activeData = (tempMeasurements && (tempMeasurements[tabLower] || tempMeasurements[activeGarmentTab])) || {};
+                            const val = activeData[f.key] !== undefined ? activeData[f.key] : '';
+
+                            return (
+                              <div key={f.key} className="p-3 rounded-xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] space-y-1">
+                                <span className="text-[10px] font-bold text-[#777777] uppercase block">{f.label}</span>
+                                <input
+                                  type="text"
+                                  placeholder="0"
+                                  value={val}
+                                  onChange={(e) => handleMeasurementFieldChange(tabLower, f.key, e.target.value)}
+                                  className="w-full px-2 py-1 rounded-lg text-xs font-bold bg-white dark:bg-[#1E1E1E] text-[#202020] dark:text-white border border-[#E3E3E3] dark:border-[#333333] focus:outline-none"
+                                />
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -509,27 +814,46 @@ export const CustomerProfileModal = () => {
                     </div>
                   ) : (
                     (() => {
-                      const categoryData = (customer.measurements && customer.measurements[activeGarmentTab]) || {};
-                      
-                      if (categoryData.suppliedGarment) {
-                        return (
-                          <div className="p-5 text-center rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800 text-xs font-bold text-emerald-700 dark:text-emerald-400 flex items-center justify-center gap-2 animate-fade-in">
-                            <Check className="w-5 h-5 text-emerald-600 shrink-0" />
-                            <span>Follow customer measurements</span>
-                          </div>
-                        );
-                      }
+                      const tabKey = (activeGarmentTab || '').toLowerCase();
+                      let categoryData = (customer.measurements && (
+                        customer.measurements[tabKey] ||
+                        customer.measurements[activeGarmentTab] ||
+                        customer.measurements[tabKey.toUpperCase()]
+                      )) || {};
 
-                      const fields = GARMENT_MEASUREMENT_FIELDS[activeGarmentTab] || [];
-                      const filled = fields.filter(f => {
-                        const val = categoryData[f.key];
-                        return val !== undefined && val !== null && String(val).trim() !== '' && String(val).trim() !== '0' && String(val).trim() !== '-';
+                      const staticFields = (garmentMeasurementFields && (garmentMeasurementFields[tabKey] || garmentMeasurementFields[activeGarmentTab])) || GARMENT_MEASUREMENT_FIELDS[tabKey] || GARMENT_MEASUREMENT_FIELDS[activeGarmentTab] || [];
+                      const staticKeyMap = {};
+                      staticFields.forEach(f => { staticKeyMap[f.key] = f.label; });
+
+                      let validEntries = Object.entries(categoryData).filter(([k, v]) => {
+                        if (k === 'suppliedGarment' || k === '_supplied') return false;
+                        return v !== undefined && v !== null && String(v).trim() !== '' && String(v).trim() !== '0' && String(v).trim() !== '-';
                       });
 
-                      if (filled.length === 0) {
+                      // Fallback: If no measurements found in customer.measurements for this tab, check customer's orders!
+                      if (validEntries.length === 0 && !categoryData.suppliedGarment && customerOrders && customerOrders.length > 0) {
+                        for (const ord of customerOrders) {
+                          if (ord.measurements) {
+                            const ordData = ord.measurements[tabKey] || ord.measurements[activeGarmentTab] || ord.measurements[tabKey.toUpperCase()];
+                            if (ordData && typeof ordData === 'object') {
+                              const ordEntries = Object.entries(ordData).filter(([k, v]) => {
+                                if (k === 'suppliedGarment' || k === '_supplied') return false;
+                                return v !== undefined && v !== null && String(v).trim() !== '' && String(v).trim() !== '0' && String(v).trim() !== '-';
+                              });
+                              if (ordEntries.length > 0 || ordData.suppliedGarment) {
+                                categoryData = ordData;
+                                validEntries = ordEntries;
+                                break;
+                              }
+                            }
+                          }
+                        }
+                      }
+
+                      if (validEntries.length === 0 && !categoryData.suppliedGarment) {
                         return (
                           <div className="p-8 text-center rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-dashed border-[#E3E3E3] dark:border-[#333333]">
-                            <p className="text-xs text-[#777777]">No active measurements recorded for {activeGarmentTab.toUpperCase()}.</p>
+                            <p className="text-xs text-[#777777]">No active measurements recorded for {tabKey.toUpperCase()}.</p>
                             <button
                               onClick={() => setIsEditingMeasurements(true)}
                               className="mt-3 px-4 py-2 rounded-xl bg-[#202020] text-white dark:bg-white dark:text-[#202020] text-xs font-bold cursor-pointer"
@@ -541,15 +865,29 @@ export const CustomerProfileModal = () => {
                       }
 
                       return (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                          {filled.map(f => (
-                            <div key={f.key} className="p-3.5 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] space-y-1 shadow-xs">
-                              <span className="text-[10px] font-bold text-[#777777] uppercase block">{f.label}</span>
-                              <span className="text-lg font-bold text-[#202020] dark:text-white block">
-                                {categoryData[f.key]}
-                              </span>
+                        <div className="space-y-3">
+                          {categoryData.suppliedGarment && (
+                            <div className="p-4 text-center rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800 text-xs font-bold text-emerald-700 dark:text-emerald-400 flex items-center justify-center gap-2 animate-fade-in">
+                              <Check className="w-5 h-5 text-emerald-600 shrink-0" />
+                              <span>Follow customer measurements</span>
                             </div>
-                          ))}
+                          )}
+
+                          {validEntries.length > 0 && (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                              {validEntries.map(([key, val]) => {
+                                const label = staticKeyMap[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                                return (
+                                  <div key={key} className="p-3.5 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] space-y-1 shadow-xs">
+                                    <span className="text-[10px] font-bold text-[#777777] uppercase block">{label}</span>
+                                    <span className="text-lg font-bold text-[#202020] dark:text-white block">
+                                      {val}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       );
                     })()
@@ -619,7 +957,25 @@ export const CustomerProfileModal = () => {
                     <div className="flex items-center justify-between text-xs pt-1">
                       <span>Total: <strong className="text-[#202020] dark:text-white">₹{order.total}</strong></span>
                       <span>Paid: <strong className="text-emerald-600">₹{order.advancePaid}</strong></span>
-                      <span>Balance: <strong className={order.balance > 0 ? "text-[#B85C5C]" : "text-emerald-600"}>₹{order.balance}</strong></span>
+                      {(() => {
+                        const tot = Number(order.total || order.total_amount || 0);
+                        const pd = Number(order.advancePaid || order.total_paid || order.paid_amount || order.advance_paid || 0);
+                        const pending = Math.max(0, order.balance !== undefined ? Number(order.balance) : (order.balance_amount !== undefined ? Number(order.balance_amount) : (tot - pd)));
+
+                        if (pending <= 0) {
+                          return (
+                            <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full">
+                              Paid
+                            </span>
+                          );
+                        }
+
+                        return (
+                          <span className="text-xs font-semibold text-amber-600 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-full">
+                            Due: ₹{pending}
+                          </span>
+                        );
+                      })()}
                       <span className="font-bold text-blue-600 hover:underline flex items-center gap-0.5">
                         Details →
                       </span>
@@ -674,8 +1030,41 @@ export const CustomerProfileModal = () => {
                     }}
                     className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#202020] dark:bg-white text-white dark:text-[#202020] font-bold text-xs hover:opacity-90 transition-smooth cursor-pointer"
                   >
-                    <Edit3 className="w-3.5 h-3.5 text-emerald-400 dark:text-emerald-600" /> Edit Order
+                    <Edit3 className="w-3.5 h-3.5 text-emerald-400 dark:text-emerald-600" /> Edit
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cleanPhone = String(selectedOrderDetail.phone || customer?.phone || '').replaceAll(/\D/g, '');
+                      const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+                      const shopNameStr = settings?.shopName || 'Mohit Tailors';
+                      const text = `Hello ${selectedOrderDetail.customerName || customer?.name}, your invoice #${selectedOrderDetail.id} from ${shopNameStr} is ready! Total: ₹${selectedOrderDetail.total}, Paid: ₹${selectedOrderDetail.advancePaid}, Balance: ₹${selectedOrderDetail.balance}. Delivery Date: ${selectedOrderDetail.dueDate}. Thank you!`;
+                      window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`, '_blank');
+                    }}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-smooth cursor-pointer"
+                  >
+                    <Send className="w-3.5 h-3.5 text-white" /> Share Bill on WhatsApp
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPrintInvoiceOrder(selectedOrderDetail)}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-[#E3E3E3] dark:border-[#333333] font-semibold text-xs text-[#202020] dark:text-white hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-[#202020] dark:text-white" /> Print Invoice
+                  </button>
+                  
+                  {userRole === 'OWNER' && (
+                    <button
+                      onClick={() => setOrderToDelete(selectedOrderDetail)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 font-bold text-xs hover:bg-red-100 cursor-pointer transition-smooth"
+                      title="Permanently delete order from database"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Delete Order
+                    </button>
+                  )}
+
                   <span className={`px-2.5 py-1 rounded-lg font-bold text-xs border ${getStatusBadgeClass(selectedOrderDetail.status)}`}>
                     Status: {selectedOrderDetail.status || 'PENDING'}
                   </span>
@@ -810,6 +1199,32 @@ export const CustomerProfileModal = () => {
                       <span>₹{selectedOrderDetail.balance}</span>
                     </div>
                   )}
+
+                  {selectedOrderDetail.balance > 0 && (
+                    <button
+                      type="button"
+                      disabled={isSubmittingSettle}
+                      onClick={async () => {
+                        if (isSubmittingSettle) return;
+                        setIsSubmittingSettle(true);
+                        try {
+                          const targetId = selectedOrderDetail.dbId || selectedOrderDetail.id;
+                          await settlePayment(targetId);
+                          if (refreshCustomerProfileData && customer?.id) {
+                            await refreshCustomerProfileData(customer.id);
+                          }
+                          refreshProfileData();
+                        } catch (err) {
+                          console.error("Error settling payment in modal:", err);
+                        } finally {
+                          setIsSubmittingSettle(false);
+                        }
+                      }}
+                      className="w-full mt-3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-smooth disabled:opacity-50"
+                    >
+                      <IndianRupee className="w-4 h-4" /> {isSubmittingSettle ? 'Settling Balance...' : `Settle Remaining Balance (₹${selectedOrderDetail.balance})`}
+                    </button>
+                  )}
                 </div>
 
               </div>
@@ -872,6 +1287,68 @@ export const CustomerProfileModal = () => {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* DELETE ORDER CONFIRMATION MODAL */}
+      {orderToDelete && (
+        <Modal
+          isOpen={true}
+          onClose={() => setOrderToDelete(null)}
+          size="sm"
+          maxWidthClass="max-w-md"
+          zIndex={10040}
+        >
+          <div className="p-6 space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="p-2.5 rounded-xl bg-red-100 dark:bg-red-950/50">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-[#202020] dark:text-white">Delete Order?</h3>
+                <p className="text-xs text-[#777777]">Order #{orderToDelete.id}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[#202020] dark:text-gray-300 leading-relaxed">
+              Are you sure you want to delete order <strong className="font-bold text-[#202020] dark:text-white font-mono">#{orderToDelete.id}</strong>? If this is the latest order, customer measurements will fall back to the previous order snapshot.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E3E3E3] dark:border-[#333333]">
+              <button
+                type="button"
+                onClick={() => setOrderToDelete(null)}
+                className="px-4 py-2.5 rounded-xl text-xs font-semibold text-[#777777] hover:bg-[#F5F5F5] dark:hover:bg-[#252525] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const targetId = orderToDelete.id;
+                  setOrderToDelete(null);
+                  if (deleteOrder) {
+                    await deleteOrder(targetId);
+                  }
+                  if (activePopup === 'order-detail') {
+                    setActivePopup('orders');
+                  }
+                  await refreshProfileData();
+                }}
+                className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-md cursor-pointer transition-smooth"
+              >
+                Delete Order
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* PRINT INVOICE MODAL */}
+      {printInvoiceOrder && (
+        <PrintInvoiceModal
+          invoice={printInvoiceOrder}
+          onClose={() => setPrintInvoiceOrder(null)}
+        />
       )}
 
     </>

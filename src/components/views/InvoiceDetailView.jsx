@@ -21,16 +21,22 @@ import { StatusBadge } from '../common/StatusBadge';
 import { PrintInvoiceModal } from '../modals/PrintInvoiceModal';
 import { WhatsAppModal } from '../modals/WhatsAppModal';
 import { PaymentModal } from '../modals/PaymentModal';
+import { DeliveryPaymentModal } from '../modals/DeliveryPaymentModal';
 
 export const InvoiceDetailView = () => {
-  const { invoices, customers, selectedInvoiceId, navigateTo, toggleStage, openCustomerProfile } = useShop();
+  const { invoices, customers, selectedInvoiceId, navigateTo, deliverOrder, openCustomerProfile, userRole = 'OWNER', hasWorkerPermission } = useShop();
 
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
 
   const invoice = invoices.find(i => i.id === selectedInvoiceId) || invoices[0];
   const customerObj = customers.find(c => c.id === invoice.customerId || c.phone === invoice.phone);
+
+  const isWorker = userRole === 'WORKER';
+  const canViewContact = !isWorker || (hasWorkerPermission && hasWorkerPermission('VIEW_CUSTOMER_CONTACT'));
+  const displayPhone = canViewContact ? (invoice.phone || 'N/A') : '••• Restricted •••';
 
   return (
     <div className="space-y-6 animate-fade-in pb-16">
@@ -39,34 +45,49 @@ export const InvoiceDetailView = () => {
       <div className="flex items-center justify-between">
         <button
           onClick={() => navigateTo('registers')}
-          className="flex items-center gap-2 text-xs font-bold text-[#777777] hover:text-[#202020] dark:hover:text-white transition-smooth"
+          className="flex items-center gap-2 text-xs font-bold text-[#777777] hover:text-[#202020] dark:hover:text-white transition-smooth cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Registers
         </button>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => navigateTo('new-invoice', { orderToEdit: invoice })}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#202020] text-white dark:bg-white dark:text-[#202020] font-bold text-xs hover:opacity-90 shadow-xs transition-smooth cursor-pointer"
-          >
-            <Edit3 className="w-4 h-4 text-emerald-400 dark:text-emerald-600" /> Edit Order
-          </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {((invoice.status || '').toUpperCase() !== 'DELIVERED' || (invoice.services && invoice.services.some(s => (s.status || '').toUpperCase() !== 'DELIVERED'))) && (
+            <button
+              onClick={() => setShowDeliveryModal(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 shadow-xs transition-smooth cursor-pointer"
+            >
+              <Truck className="w-4 h-4" /> Mark Delivered
+            </button>
+          )}
 
-          <button
-            onClick={() => setShowPrintModal(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-[#E3E3E3] dark:border-[#333333] font-semibold text-xs text-[#202020] dark:text-white hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth cursor-pointer"
-          >
-            <Printer className="w-4 h-4" /> Print Invoice
-          </button>
+          {!isWorker && (
+            <button
+              onClick={() => navigateTo('new-invoice', { orderToEdit: invoice })}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#202020] text-white dark:bg-white dark:text-[#202020] font-bold text-xs hover:opacity-90 shadow-xs transition-smooth cursor-pointer"
+            >
+              <Edit3 className="w-4 h-4 text-emerald-400 dark:text-emerald-600" /> Edit Order
+            </button>
+          )}
 
-          <button
-            onClick={() => setShowWhatsAppModal(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 shadow-xs transition-smooth cursor-pointer"
-          >
-            <Send className="w-4 h-4" /> Send via WhatsApp
-          </button>
+          {!isWorker && (
+            <button
+              onClick={() => setShowPrintModal(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-[#E3E3E3] dark:border-[#333333] font-semibold text-xs text-[#202020] dark:text-white hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth cursor-pointer"
+            >
+              <Printer className="w-4 h-4" /> Print Invoice
+            </button>
+          )}
 
-          {invoice.balance > 0 && (
+          {!isWorker && (
+            <button
+              onClick={() => setShowWhatsAppModal(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#202020] dark:bg-white text-white dark:text-[#202020] font-bold text-xs hover:opacity-90 shadow-xs transition-smooth cursor-pointer"
+            >
+              <Send className="w-4 h-4 text-emerald-400 dark:text-emerald-600" /> Send via WhatsApp
+            </button>
+          )}
+
+          {invoice.balance > 0 && (!isWorker || (hasWorkerPermission && hasWorkerPermission('VIEW_PAYMENTS'))) && (
             <button
               onClick={() => setShowPaymentModal(true)}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-emerald-600 text-emerald-600 font-bold text-xs hover:bg-emerald-50 dark:hover:bg-emerald-950/40 shadow-xs transition-smooth cursor-pointer"
@@ -105,7 +126,7 @@ export const InvoiceDetailView = () => {
               <h4 className="font-bold text-sm text-[#202020] dark:text-white group-hover:text-emerald-600 transition-smooth">
                 {invoice.customerName}
               </h4>
-              <span className="text-xs text-[#777777] font-mono">{invoice.phone} • Click for Profile</span>
+              <span className="text-xs text-[#777777] font-mono">{displayPhone} • Click for Profile</span>
             </div>
           </div>
         </div>
@@ -238,6 +259,14 @@ export const InvoiceDetailView = () => {
       {showPrintModal && <PrintInvoiceModal invoice={invoice} onClose={() => setShowPrintModal(false)} />}
       {showWhatsAppModal && <WhatsAppModal invoice={invoice} onClose={() => setShowWhatsAppModal(false)} />}
       {showPaymentModal && <PaymentModal invoice={invoice} onClose={() => setShowPaymentModal(false)} />}
+      <DeliveryPaymentModal
+        isOpen={showDeliveryModal}
+        order={invoice}
+        onClose={() => setShowDeliveryModal(false)}
+        onConfirmDelivery={async ({ orderId, amountPaidNow, paymentMode }) => {
+          await deliverOrder(orderId, amountPaidNow, paymentMode);
+        }}
+      />
 
     </div>
   );

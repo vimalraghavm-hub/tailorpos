@@ -4,12 +4,12 @@ import {
   UserPlus, 
   Shield, 
   UserCheck, 
-  UserX, 
   RefreshCw, 
   Briefcase,
-  Check,
   Power,
-  Edit3
+  Edit3,
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
 import { WorkerFormModal } from '../modals/WorkerFormModal';
@@ -20,12 +20,14 @@ export const WorkersView = () => {
     userRole, 
     workersList, 
     loadWorkersData, 
-    toggleWorkerStatus 
+    toggleWorkerStatus,
+    deleteWorker 
   } = useShop();
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedWorkerForPerms, setSelectedWorkerForPerms] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [workerToDelete, setWorkerToDelete] = useState(null);
 
   if (userRole !== 'OWNER') {
     return (
@@ -41,6 +43,12 @@ export const WorkersView = () => {
     setIsLoading(true);
     await loadWorkersData();
     setIsLoading(false);
+  };
+
+  const handleConfirmDeleteWorker = async () => {
+    if (!workerToDelete) return;
+    await deleteWorker(workerToDelete.id);
+    setWorkerToDelete(null);
   };
 
   const activeWorkersCount = workersList.filter(w => w.is_active !== false).length;
@@ -133,37 +141,51 @@ export const WorkersView = () => {
               const isActive = worker.is_active !== false;
               const perms = worker.permissions || {};
               const enabledPermCount = Object.values(perms).filter(Boolean).length;
+              const displayName = worker.full_name || worker.name || 'Worker';
 
               return (
                 <div key={worker.id} className="p-6 rounded-3xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] shadow-xs space-y-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-2xl bg-purple-600 text-white font-bold flex items-center justify-center text-sm shadow-xs">
-                        {worker.full_name.slice(0, 2).toUpperCase()}
+                        {displayName.slice(0, 2).toUpperCase()}
                       </div>
                       <div>
                         <h4 className="font-bold text-sm text-[#202020] dark:text-white flex items-center gap-2">
-                          {worker.full_name}
+                          {displayName}
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                             isActive ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400' : 'bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-400'
                           }`}>
-                            {isActive ? 'ACTIVE' : 'DISABLED'}
+                            {isActive ? 'ACTIVE' : 'INACTIVE'}
                           </span>
                         </h4>
                         <span className="text-xs text-[#777777] font-mono">{worker.email}</span>
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => toggleWorkerStatus(worker.id, !isActive)}
-                      className={`p-2 rounded-xl transition-smooth cursor-pointer ${
-                        isActive ? 'text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40' : 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
-                      }`}
-                      title={isActive ? "Disable worker account" : "Enable worker account"}
-                    >
-                      <Power className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      {/* Active / Inactive Toggle Button */}
+                      <button
+                        type="button"
+                        onClick={() => toggleWorkerStatus(worker.id, !isActive)}
+                        className={`p-2 rounded-xl transition-smooth cursor-pointer ${
+                          isActive ? 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40' : 'text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                        }`}
+                        title={isActive ? "Deactivate worker account (Make Inactive)" : "Activate worker account (Make Active)"}
+                      >
+                        <Power className="w-4 h-4" />
+                      </button>
+
+                      {/* Delete Worker Button */}
+                      <button
+                        type="button"
+                        onClick={() => setWorkerToDelete(worker)}
+                        className="p-2 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-smooth cursor-pointer"
+                        title="Delete Worker Profile"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
                   {/* Permissions Summary Badges */}
@@ -189,10 +211,14 @@ export const WorkersView = () => {
                     </div>
                   </div>
 
-                  {/* Worker Assigned Orders Summary */}
-                  <div className="flex items-center justify-between text-xs text-[#777777] pt-1">
-                    <span>Active Assigned Orders: <strong className="text-[#202020] dark:text-white font-bold">{worker.assignedCount || 0}</strong></span>
-                    <span className="text-[10px] text-purple-600 font-mono">Role: WORKER</span>
+                  {/* Worker Assigned Orders & Customers Summary */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#777777] pt-2 border-t border-[#E3E3E3] dark:border-[#333333]">
+                    <span>
+                      Active Assigned Orders: <strong className="text-[#202020] dark:text-white font-bold">{worker.assignedCount || 0}</strong>
+                      <span className="mx-1.5 text-[#CCCCCC] dark:text-[#555555]">|</span>
+                      Assigned Customers: <strong className="text-[#202020] dark:text-white font-bold">{worker.assignedCustomersCount || 0}</strong>
+                    </span>
+                    <span className="text-[10px] text-purple-600 dark:text-purple-400 font-mono font-bold">Role: WORKER</span>
                   </div>
                 </div>
               );
@@ -204,6 +230,44 @@ export const WorkersView = () => {
       {/* Modals */}
       <WorkerFormModal isOpen={showAddModal} onClose={() => setShowAddModal(false)} />
       <WorkerPermissionsModal worker={selectedWorkerForPerms} onClose={() => setSelectedWorkerForPerms(null)} />
+
+      {/* Delete Worker Confirmation Dialog */}
+      {workerToDelete && (
+        <div className="fixed inset-0 z-[10050] flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="w-full max-w-md p-6 rounded-3xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] shadow-2xl space-y-5">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="p-2.5 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-[#202020] dark:text-white">Delete Worker Profile</h3>
+                <p className="text-xs text-[#777777]">Confirm worker account deletion</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[#777777] leading-relaxed">
+              Are you sure you want to delete this worker profile (<strong className="text-[#202020] dark:text-white">{workerToDelete.full_name || workerToDelete.name}</strong>)? This action will remove their credentials and active assignments.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setWorkerToDelete(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-[#777777] hover:text-[#202020] dark:hover:text-white cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteWorker}
+                className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-xs cursor-pointer"
+              >
+                Delete Worker Profile
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

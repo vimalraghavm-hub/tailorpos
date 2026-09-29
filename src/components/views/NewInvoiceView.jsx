@@ -19,13 +19,15 @@ import {
   ArrowLeft,
   FileText,
   MessageSquare,
-  Sparkles
+  Sparkles,
+  RefreshCw
 } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
 import { CustomerModal } from '../modals/CustomerModal';
 import { PrintInvoiceModal } from '../modals/PrintInvoiceModal';
 import { WhatsAppModal } from '../modals/WhatsAppModal';
 import { generateUniqueId } from '../../utils/idGenerator';
+import { isPhoneMatch } from '../../utils/phoneUtils';
 import { 
   GARMENT_MEASUREMENT_TYPES, 
   GARMENT_MEASUREMENT_FIELDS, 
@@ -44,7 +46,12 @@ export const NewInvoiceView = () => {
     setSelectedCustomerId,
     openCustomerProfile,
     editingOrder,
-    clearEditingOrder
+    clearEditingOrder,
+    navigateTo,
+    setSelectedInvoiceId,
+    garmentMeasurementTypes = GARMENT_MEASUREMENT_TYPES,
+    garmentMeasurementFields = GARMENT_MEASUREMENT_FIELDS,
+    getDynamicDefaultMeasurements = getDefaultMeasurements
   } = useShop();
 
   // 1. Customer Search & Selection State
@@ -55,8 +62,8 @@ export const NewInvoiceView = () => {
   const [prevOrderContext, setPrevOrderContext] = useState(null);
 
   // 2. Order Creation Workspace State
-  const [activeGarmentTab, setActiveGarmentTab] = useState('gown');
-  const [orderMeasurements, setOrderMeasurements] = useState(getDefaultMeasurements());
+  const [activeGarmentTab, setActiveGarmentTab] = useState(() => (garmentMeasurementTypes && garmentMeasurementTypes[0] ? garmentMeasurementTypes[0].id : 'gown'));
+  const [orderMeasurements, setOrderMeasurements] = useState(() => getDynamicDefaultMeasurements());
 
   // Services line items - Zero preloaded services by default
   const [lineItems, setLineItems] = useState([]);
@@ -138,33 +145,33 @@ export const NewInvoiceView = () => {
     if (setSelectedCustomerId) setSelectedCustomerId(null);
   };
 
-  // Click "+ New Order": Preloads Previous Measurements as Snapshot & Opens Workspace
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Click "+ New Order": Preloads Customer's Current Saved Measurements & Opens Workspace
   const handleStartNewOrder = () => {
     if (!selectedCustomer) return;
 
-    // Find customer's IMMEDIATELY PREVIOUS ORDER
+    // Retrieve customer's CURRENT saved measurements (from profile or latest update)
+    if (selectedCustomer.measurements && Object.keys(selectedCustomer.measurements).length > 0) {
+      setOrderMeasurements(JSON.parse(JSON.stringify(selectedCustomer.measurements)));
+    } else {
+      setOrderMeasurements(getDynamicDefaultMeasurements());
+    }
+
+    // Look up previous order context for notification banner
     const customerInvoices = invoices.filter(inv => 
       (inv.customerId && inv.customerId === selectedCustomer.id) || 
-      (inv.phone && selectedCustomer.phone && inv.phone.trim() === selectedCustomer.phone.trim())
+      (inv.phone && selectedCustomer.phone && isPhoneMatch(selectedCustomer.phone, inv.phone))
     );
-
     const prevOrder = customerInvoices.length > 0 ? customerInvoices[0] : null;
 
-    if (prevOrder && prevOrder.measurements) {
-      // Deep copy snapshot
-      setOrderMeasurements(JSON.parse(JSON.stringify(prevOrder.measurements)));
+    if (prevOrder) {
       setPrevOrderContext({
         id: prevOrder.id,
         date: prevOrder.date,
-        total: prevOrder.total,
-        measurements: prevOrder.measurements
+        total: prevOrder.total
       });
-    } else if (selectedCustomer.measurements) {
-      // Deep copy from profile measurements
-      setOrderMeasurements(JSON.parse(JSON.stringify(selectedCustomer.measurements)));
-      setPrevOrderContext(null);
     } else {
-      setOrderMeasurements(getDefaultMeasurements());
       setPrevOrderContext(null);
     }
 
@@ -235,8 +242,8 @@ export const NewInvoiceView = () => {
 
   const currentInvoiceId = editingOrder ? editingOrder.id : `${settings.invoicePrefix}${settings.nextInvoiceNumber}`;
 
-  // Save / Finalize Order & Invoice
-  const handleSaveInvoice = () => {
+  // Save / Finalize Order & Invoice (Async with DB Confirmation)
+  const handleSaveInvoice = async () => {
     if (!selectedCustomer) {
       alert("Please select a customer first.");
       return;
@@ -245,44 +252,66 @@ export const NewInvoiceView = () => {
       alert("Please add at least one service item.");
       return;
     }
+    if (isSubmitting) return;
 
+    setIsSubmitting(true);
     try {
-      confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 } });
-    } catch (e) {}
+      const orderDateStr = orderDate ? new Date(orderDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+      const dueStr = dueDate ? new Date(dueDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A';
 
-    const orderDateStr = orderDate ? new Date(orderDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-    const dueStr = dueDate ? new Date(dueDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A';
+      const newInvoiceData = {
+        id: editingOrder ? editingOrder.id : currentInvoiceId,
+        isEditMode: Boolean(editingOrder),
+        dbId: editingOrder?.dbId,
+        customerId: selectedCustomer?.id,
+        customerName: selectedCustomer?.name || selectedCustomer?.full_name || 'Customer',
+        phone: selectedCustomer?.phone || '',
+        address: selectedCustomer?.address || 'Local Customer',
+        material: "Customer Provided Material",
+        garmentType: lineItems[0] ? lineItems[0].name : "Custom Tailoring",
+        date: orderDateStr,
+        dueDate: dueStr,
+        services: lineItems,
+        subtotal,
+        discount: discountVal,
+        discountType,
+        rawDiscount,
+        total,
+        advancePaid: advanceVal,
+        balance,
+        extraPaid,
+        paymentMode,
+        notes: orderNotes,
+        measurements: orderMeasurements
+      };
 
-    const newInvoiceData = {
-      id: currentInvoiceId,
-      customerId: selectedCustomer.id,
-      customerName: selectedCustomer.name,
-      phone: selectedCustomer.phone,
-      address: selectedCustomer.address || 'Local Customer',
-      material: "Customer Provided Material",
-      garmentType: lineItems[0] ? lineItems[0].name : "Custom Tailoring",
-      date: orderDateStr,
-      dueDate: dueStr,
-      services: lineItems,
-      subtotal,
-      discount: discountVal,
-      discountType,
-      rawDiscount,
-      total,
-      advancePaid: advanceVal,
-      balance,
-      extraPaid,
-      paymentMode,
-      notes: orderNotes,
-      measurements: orderMeasurements
-    };
+      const res = await saveInvoice(newInvoiceData);
 
-    saveInvoice(newInvoiceData);
-    setFinalizedInvoice(newInvoiceData);
-    if (clearEditingOrder) clearEditingOrder();
+      if (res?.success !== false) {
+        try {
+          confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 } });
+        } catch (e) {}
+
+        const targetInvoiceId = res?.invoiceId || newInvoiceData.id;
+        setSelectedInvoiceId(targetInvoiceId);
+        setFinalizedInvoice({
+          ...newInvoiceData,
+          id: targetInvoiceId,
+          dbId: res?.dbId || newInvoiceData.dbId
+        });
+        if (clearEditingOrder) clearEditingOrder();
+
+        // Navigate immediately to invoice detail view
+        navigateTo('invoice-detail', { invoiceId: targetInvoiceId });
+      }
+    } catch (err) {
+      console.error("Error finalizing invoice:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const activeFields = GARMENT_MEASUREMENT_FIELDS[activeGarmentTab] || [];
+  const activeFields = (garmentMeasurementFields && garmentMeasurementFields[activeGarmentTab]) || GARMENT_MEASUREMENT_FIELDS[activeGarmentTab] || [];
 
   return (
     <div className="space-y-6 animate-fade-in pb-16">
@@ -444,17 +473,17 @@ export const NewInvoiceView = () => {
           <div className="p-6 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-2xl bg-[#202020] text-white flex items-center justify-center text-base font-bold shrink-0">
-                {selectedCustomer.name.slice(0, 2).toUpperCase()}
+                {(selectedCustomer?.name || 'Customer').slice(0, 2).toUpperCase()}
               </div>
               <div>
                 <h3 className="font-bold text-lg text-[#202020] dark:text-white leading-tight">
-                  {selectedCustomer.name}
+                  {selectedCustomer?.name || 'Unknown Customer'}
                 </h3>
                 <p className="text-xs text-[#777777] font-mono mt-1">
-                  {selectedCustomer.phone}
+                  {selectedCustomer?.phone || ''}
                 </p>
                 <p className="text-xs text-[#777777] mt-0.5">
-                  {selectedCustomer.address || 'Local Customer'}
+                  {selectedCustomer?.address || 'Local Customer'}
                 </p>
               </div>
             </div>
@@ -494,14 +523,14 @@ export const NewInvoiceView = () => {
             <div className="p-5 rounded-3xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
                 <div className="w-10 h-10 rounded-xl bg-[#202020] text-white flex items-center justify-center text-xs font-bold shrink-0">
-                  {selectedCustomer.name.slice(0, 2).toUpperCase()}
+                  {(selectedCustomer?.name || selectedCustomer?.full_name || 'Customer').trim().slice(0, 2).toUpperCase()}
                 </div>
                 <div>
                   <h4 className="font-bold text-base text-[#202020] dark:text-white leading-tight">
-                    {selectedCustomer.name}
+                    {selectedCustomer?.name || selectedCustomer?.full_name || 'Customer'}
                   </h4>
                   <p className="text-xs text-[#777777] font-mono mt-0.5">
-                    {selectedCustomer.phone} • {selectedCustomer.address || 'Local Customer'}
+                    {selectedCustomer?.phone || ''} • {selectedCustomer?.address || 'Local Customer'}
                   </p>
                 </div>
               </div>
@@ -652,7 +681,7 @@ export const NewInvoiceView = () => {
 
                 {/* Garment Tabs */}
                 <div className="flex items-center gap-1 p-1 rounded-xl bg-[#F5F5F5] dark:bg-[#282828] border border-[#E3E3E3] dark:border-[#333333] overflow-x-auto">
-                  {GARMENT_MEASUREMENT_TYPES.map(tab => (
+                  {garmentMeasurementTypes.map(tab => (
                     <button
                       type="button"
                       key={tab.id}
@@ -691,7 +720,7 @@ export const NewInvoiceView = () => {
                         onChange={(e) => handleMeasurementChange(activeGarmentTab, 'suppliedGarment', e.target.checked)}
                         className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
                       />
-                      <span>Follow measurements from customer supplied garment / sample ({GARMENT_MEASUREMENT_TYPES.find(t => t.id === activeGarmentTab)?.label})</span>
+                      <span>Follow measurements from customer supplied garment / sample ({garmentMeasurementTypes.find(t => t.id === activeGarmentTab)?.label})</span>
                     </label>
                   </div>
 
@@ -873,10 +902,19 @@ export const NewInvoiceView = () => {
               {/* Finalize Button */}
               <button
                 type="button"
+                disabled={isSubmitting}
                 onClick={handleSaveInvoice}
-                className="w-full py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md transition-smooth cursor-pointer"
+                className="w-full py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md transition-smooth cursor-pointer disabled:opacity-50"
               >
-                <CheckCircle2 className="w-4 h-4" /> Save & Generate Invoice
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" /> Saving Order & Generating Bill...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" /> Save & Generate Invoice
+                  </>
+                )}
               </button>
             </div>
           </div>

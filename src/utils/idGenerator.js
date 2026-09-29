@@ -9,3 +9,8 @@ export const generateUniqueId = (prefix = 'id') => {
   counter += 1;
   return `${prefix}_${Date.now()}_${counter}_${Math.random().toString(36).substring(2, 7)}`;
 };
+
+export const isUuid = (val) => {
+  if (!val || typeof val !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+};
