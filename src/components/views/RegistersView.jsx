@@ -19,6 +19,7 @@ import { StatusBadge } from '../common/StatusBadge';
 import { WorkflowEditorModal } from '../modals/WorkflowEditorModal';
 import { DeliveryPaymentModal } from '../modals/DeliveryPaymentModal';
 import { useModalDismiss } from '../../utils/modalUtils';
+import { Modal } from '../common/Modal';
 import { useRealtimeRegisters } from '../../hooks/useRealtimeRegisters';
 
 import { fetchAllOrders, removeOrderFromRegister } from '../../services/orders';
@@ -929,45 +930,54 @@ export const RegistersView = () => {
 
       {/* Order Deletion / Removal Confirmation Modal */}
       {orderToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-[2px] p-4 transition-all duration-200 animate-in fade-in">
-          <div className="relative bg-white dark:bg-[#1E1E1E] rounded-2xl p-5 max-w-sm w-full shadow-xl border border-gray-100 dark:border-[#333333] transform transition-all duration-200 animate-in fade-in zoom-in-95">
+        <Modal
+          isOpen={Boolean(orderToDelete)}
+          onClose={() => setOrderToDelete(null)}
+          size="sm"
+          maxWidthClass="max-w-md"
+        >
+          <div className="relative p-6 space-y-4">
             <button 
               type="button"
               onClick={() => setOrderToDelete(null)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-white p-1 rounded-full hover:bg-gray-100 dark:hover:bg-[#282828] transition-colors cursor-pointer"
+              className="absolute top-5 right-5 text-gray-400 hover:text-gray-600 dark:hover:text-white p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-[#282828] transition-colors cursor-pointer"
             >
-              <X className="w-4 h-4" />
+              <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-3 mb-3.5 pr-6">
-              <div className="w-9 h-9 rounded-xl bg-orange-100/70 dark:bg-orange-950/60 text-orange-600 dark:text-orange-400 flex items-center justify-center shrink-0">
-                <Trash2 className="w-4 h-4" />
+            <div className="flex items-center gap-3 pr-6">
+              <div className="w-10 h-10 rounded-2xl bg-orange-100/80 dark:bg-orange-950/60 text-orange-600 dark:text-orange-400 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-gray-900 dark:text-white">Remove Order from Register</h3>
-                <p className="text-[11px] font-medium text-gray-400 dark:text-[#777777]">Order #{orderToDelete?.invoice_number || orderToDelete?.id}</p>
+                <h3 className="text-base font-bold text-gray-900 dark:text-white">Remove Order from Register</h3>
+                <p className="text-xs font-medium text-gray-500 dark:text-[#777777]">
+                  Order #{orderToDelete?.invoice_number || orderToDelete?.id}
+                </p>
               </div>
             </div>
 
-            <div className="bg-gray-50 dark:bg-[#252525] rounded-xl p-3 border border-gray-100 dark:border-[#333333] mb-4 space-y-1.5 text-xs">
+            <div className="bg-gray-50 dark:bg-[#252525] rounded-2xl p-4 border border-gray-100 dark:border-[#333333] space-y-2 text-xs">
               <div className="flex justify-between items-center">
-                <span className="text-gray-500 dark:text-[#777777]">Invoice:</span>
-                <span className="text-gray-900 dark:text-white font-semibold">{orderToDelete?.invoice_number || orderToDelete?.id}</span>
+                <span className="text-gray-500 dark:text-[#777777] font-medium">Invoice Number:</span>
+                <span className="text-gray-900 dark:text-white font-bold font-mono">{orderToDelete?.invoice_number || orderToDelete?.id}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-gray-500 dark:text-[#777777]">Customer:</span>
-                <span className="text-gray-900 dark:text-white font-medium">{orderToDelete?.customerName || orderToDelete?.customer_name || orderToDelete?.customer?.name || 'Local Customer'}</span>
+                <span className="text-gray-500 dark:text-[#777777] font-medium">Customer:</span>
+                <span className="text-gray-900 dark:text-white font-semibold">{orderToDelete?.customerName || orderToDelete?.customer_name || orderToDelete?.customer?.name || 'Local Customer'}</span>
               </div>
-              <p className="text-[11px] text-amber-700 dark:text-amber-400 font-normal pt-1.5 border-t border-gray-200/50 dark:border-[#333333] leading-tight">
-                This will hide the order from active register view. It remains saved in customer history.
-              </p>
+              <div className="pt-2 border-t border-gray-200/60 dark:border-[#333333]">
+                <p className="text-xs text-amber-700 dark:text-amber-400 font-normal leading-relaxed">
+                  This will hide the order from the active register view. It remains saved in customer history.
+                </p>
+              </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-gray-100 dark:border-[#333333]">
               <button 
                 type="button"
                 onClick={() => setOrderToDelete(null)}
-                className="px-3.5 py-2 text-xs font-semibold text-gray-600 dark:text-[#A0A0A0] bg-gray-100 dark:bg-[#2A2A2A] hover:bg-gray-200 dark:hover:bg-[#333333] active:scale-95 rounded-lg transition-all cursor-pointer"
+                className="px-4 py-2.5 rounded-xl text-xs font-semibold text-gray-600 dark:text-[#A0A0A0] bg-gray-100 dark:bg-[#2A2A2A] hover:bg-gray-200 dark:hover:bg-[#333333] active:scale-95 transition-all cursor-pointer"
               >
                 Cancel
               </button>
@@ -985,15 +995,14 @@ export const RegistersView = () => {
                     setOrders(freshOrders);
                   }
                 }}
-                className="px-3.5 py-2 text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 active:scale-95 rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                className="px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-orange-600 hover:bg-orange-700 active:scale-95 shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <Trash2 className="w-4 h-4" />
                 Confirm & Remove
               </button>
             </div>
-
           </div>
-        </div>
+        </Modal>
       )}
 
     </div>

@@ -59,7 +59,8 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
 
   const handleClose = propOnClose || closeCustomerProfile;
   const targetCustomerId = propCustomer?.id || activeProfileCustomerId;
-  const customer = propCustomer || (customers || []).find(c => c && c.id === targetCustomerId);
+  const contextCustomer = (customers || []).find(c => c && c.id === targetCustomerId);
+  const customer = contextCustomer || propCustomer;
 
   // Active popup state inside profile hub: null | 'measurements' | 'orders' | 'order-detail'
   const [activePopup, setActivePopup] = useState(null);
@@ -103,21 +104,16 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
     return { totalSpent, outstandingDue };
   };
 
-  const refreshProfileData = React.useCallback(async () => {
-    if (targetCustomerId) {
-      if (refreshCustomerProfileData) {
-        await refreshCustomerProfileData(targetCustomerId);
-      }
-      if (refetchOrders) {
-        await refetchOrders();
-      }
-    }
-  }, [targetCustomerId, refreshCustomerProfileData, refetchOrders]);
-
-  // Trigger real-time fresh fetch from database on opening profile
+  // Fetch fresh customer profile data ONCE when opening profile for a customer
   React.useEffect(() => {
-    refreshProfileData();
-  }, [targetCustomerId, refreshProfileData]);
+    let isMounted = true;
+    if (targetCustomerId && refreshCustomerProfileData) {
+      refreshCustomerProfileData(targetCustomerId);
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [targetCustomerId]);
 
   if (!customer) return null;
 
@@ -345,7 +341,7 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
     setActivePopup('order-detail');
   };
 
-  const selectedOrderDetail = (invoices || []).find(inv => inv && inv.id === selectedOrderDetailId);
+  const selectedOrderDetail = (invoices || []).find(inv => inv && (inv.id === selectedOrderDetailId || inv.dbId === selectedOrderDetailId || String(inv.invoice_number) === String(selectedOrderDetailId)));
 
   // Status badge styling helper (information only)
   const getStatusBadgeClass = (st) => {
@@ -1213,7 +1209,6 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
                           if (refreshCustomerProfileData && customer?.id) {
                             await refreshCustomerProfileData(customer.id);
                           }
-                          refreshProfileData();
                         } catch (err) {
                           console.error("Error settling payment in modal:", err);
                         } finally {
@@ -1332,7 +1327,9 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
                   if (activePopup === 'order-detail') {
                     setActivePopup('orders');
                   }
-                  await refreshProfileData();
+                  if (refreshCustomerProfileData && customer?.id) {
+                    await refreshCustomerProfileData(customer.id);
+                  }
                 }}
                 className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-md cursor-pointer transition-smooth"
               >

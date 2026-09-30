@@ -34,15 +34,23 @@ export const CustomersView = () => {
   const currentUserId = currentUser?.id || currentUser?.auth_user_id || currentUser?.worker_id;
   const [allOrdersList, setAllOrdersList] = useState([]);
 
-  useEffect(() => {
-    async function loadData() {
-      const freshOrders = await fetchAllOrders(shopId, currentUser);
-      if (freshOrders) {
-        setAllOrdersList(freshOrders);
-      }
+  const loadData = useCallback(async () => {
+    const freshOrders = await fetchAllOrders(shopId, currentUser);
+    if (freshOrders) {
+      setAllOrdersList(freshOrders);
     }
+  }, [shopId, currentUser]);
+
+  useEffect(() => {
     loadData();
-  }, [currentUserId]);
+
+    const handleGlobalUpdate = () => {
+      loadData();
+    };
+
+    window.addEventListener('shop-data-updated', handleGlobalUpdate);
+    return () => window.removeEventListener('shop-data-updated', handleGlobalUpdate);
+  }, [loadData]);
 
   const computeCustomerLedger = (customer) => {
     const ordersToUse = (allOrdersList && allOrdersList.length > 0) ? allOrdersList : invoices;
@@ -66,11 +74,15 @@ export const CustomersView = () => {
       return sum + (pending > 0 ? pending : 0);
     }, 0);
 
+    const finalBalance = (customer.outstanding !== undefined && customer.outstanding === 0)
+      ? 0
+      : (outstandingBalance !== undefined ? outstandingBalance : (customer.outstanding || 0));
+
     return {
       ...customer,
       totalOrdersCount: userOrders.length || customer.totalOrders || 0,
       totalSpent: totalSpent || customer.totalSpent || 0,
-      outstandingBalance: outstandingBalance !== undefined ? outstandingBalance : (customer.outstanding || 0)
+      outstandingBalance: finalBalance
     };
   };
 

@@ -263,7 +263,7 @@ export const ShopProvider = ({ children }) => {
   }, [user, userRole]);
 
   // 2. Hydrate shop data & Realtime subscriptions from Supabase PostgreSQL
-  const loadShopData = async () => {
+  const loadShopData = useCallback(async () => {
     if (!isSupabaseConfigured) return;
     try {
       const activeUser = userProfile || user;
@@ -399,7 +399,7 @@ export const ShopProvider = ({ children }) => {
     } finally {
       setIsHydrated(true);
     }
-  };
+  }, [shopId, user, userProfile]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -805,14 +805,11 @@ export const ShopProvider = ({ children }) => {
     setEditingOrder(null);
   };
 
-  const refreshCustomerProfileData = async (customerId) => {
+  const refreshCustomerProfileData = useCallback(async (customerId) => {
     if (!isSupabaseConfigured || !customerId) return;
-    console.log(`[CUSTOMER REFRESH START] shopId: ${shopId}, customerId: ${customerId}`);
     try {
       const fullProfile = await customersService.getCustomerFullProfile(shopId, customerId);
       if (!fullProfile || !fullProfile.customer) return;
-
-      console.log(`[CUSTOMER ORDERS] shopId: ${shopId}, customerId: ${customerId}, count: ${fullProfile.orders?.length || 0}`);
 
       const defaultMeas = getFallbackDefaultMeasurements();
       const measurementsObj = JSON.parse(JSON.stringify(defaultMeas));
@@ -859,8 +856,6 @@ export const ShopProvider = ({ children }) => {
           const freshBalance = fullProfile.customer.outstanding_balance !== undefined 
             ? parseFloat(fullProfile.customer.outstanding_balance) || 0 
             : c.outstanding;
-          console.log(`[LEDGER REFRESH] customerId: ${customerId} orders: ${fullProfile.orders?.length || 0} calculatedOutstanding: ₹${freshBalance}`);
-          console.log(`[CUSTOMER BALANCE CALC] shopId: ${shopId}, customerId: ${customerId}, outstanding: ₹${freshBalance}`);
           return {
             ...c,
             name: fullProfile.customer.name || c.name,
@@ -874,22 +869,21 @@ export const ShopProvider = ({ children }) => {
         }
         return c;
       }));
-      console.log(`[CUSTOMER REFRESH END] shopId: ${shopId}, customerId: ${customerId}, success: true`);
     } catch (err) {
       console.error('Error refreshing customer profile data:', err);
     }
-  };
+  }, [shopId]);
 
-  const openCustomerProfile = (customerId) => {
+  const openCustomerProfile = useCallback((customerId) => {
     setActiveProfileCustomerId(customerId);
     if (customerId) {
       refreshCustomerProfileData(customerId);
     }
-  };
+  }, [refreshCustomerProfileData]);
 
-  const closeCustomerProfile = () => {
+  const closeCustomerProfile = useCallback(() => {
     setActiveProfileCustomerId(null);
-  };
+  }, []);
 
   // Production Status Operations
   const addProductionStatus = async (statusName) => {
@@ -1625,9 +1619,9 @@ export const ShopProvider = ({ children }) => {
 
   const addInvoice = saveInvoice;
 
-  const refetchOrders = async () => {
+  const refetchOrders = useCallback(async () => {
     await loadShopData();
-  };
+  }, [loadShopData]);
 
   const recordPayment = async (invoiceId, amount, mode) => {
     const targetInv = invoices.find(inv => inv.id === invoiceId || inv.dbId === invoiceId);
