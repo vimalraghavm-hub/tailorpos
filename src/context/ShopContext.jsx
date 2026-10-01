@@ -1628,7 +1628,7 @@ export const ShopProvider = ({ children }) => {
       refreshCustomerProfileData(customerObj.id);
     }
 
-    return { success: true, invoiceId: newId, dbId: createdDbId };
+    return { success: true, invoiceId: finalInvoiceId, dbId: createdDbId };
   };
 
   const addInvoice = saveInvoice;
