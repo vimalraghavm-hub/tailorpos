@@ -18,6 +18,7 @@ import { useShop } from '../../context/ShopContext';
 import { StatusBadge } from '../common/StatusBadge';
 import { WorkflowEditorModal } from '../modals/WorkflowEditorModal';
 import { DeliveryPaymentModal } from '../modals/DeliveryPaymentModal';
+import { WhatsAppModal } from '../modals/WhatsAppModal';
 import { useModalDismiss } from '../../utils/modalUtils';
 import { Modal } from '../common/Modal';
 import { useRealtimeRegisters } from '../../hooks/useRealtimeRegisters';
@@ -93,6 +94,9 @@ export const RegistersView = () => {
   // Order Deletion Confirmation Modal state
   const [orderToDelete, setOrderToDelete] = useState(null);
 
+  // Ready action WhatsApp modal confirmation state
+  const [pendingReadyAction, setPendingReadyAction] = useState(null);
+
   useModalDismiss(() => setDeliverySettlementInvoice(null), Boolean(deliverySettlementInvoice));
   useModalDismiss(() => setOrderToDelete(null), Boolean(orderToDelete));
 
@@ -106,7 +110,7 @@ export const RegistersView = () => {
     setSelectedSingleDate('');
   };
 
-  const handleUpdateOrderStatus = async (e, order, newStatus, serviceIndex = null) => {
+  const handleUpdateOrderStatus = async (e, order, newStatus, serviceIndex = null, skipReadyModal = false) => {
     if (e) {
       if (typeof e.stopPropagation === 'function') e.stopPropagation();
       if (typeof e.preventDefault === 'function') e.preventDefault();
@@ -128,6 +132,12 @@ export const RegistersView = () => {
     // If newStatus is DELIVERED, delegate directly to canonical DeliveryPaymentModal / deliverOrder flow
     if (newStatus.toUpperCase() === 'DELIVERED') {
       setDeliverySettlementInvoice(targetOrder);
+      return;
+    }
+
+    // If newStatus is READY and prompt hasn't been handled, open editable WhatsApp modal first
+    if (newStatus.toUpperCase() === 'READY' && !skipReadyModal) {
+      setPendingReadyAction({ order: targetOrder, newStatus, serviceIndex });
       return;
     }
 
@@ -502,13 +512,13 @@ export const RegistersView = () => {
           </div>
 
           {/* Time Filter Pills & Custom Date inputs */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-[#F5F5F5] dark:bg-[#282828] border border-[#E3E3E3] dark:border-[#333333]">
+          <div className="flex flex-wrap items-center gap-2 max-w-full">
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-[#F5F5F5] dark:bg-[#282828] border border-[#E3E3E3] dark:border-[#333333] max-w-full overflow-x-auto scrollbar-none">
               {['All', 'Today', 'Tomorrow', 'This Week', 'Overdue', 'Custom Date'].map((tf) => (
                 <button
                   key={tf}
                   onClick={() => setTimeFilter(tf)}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-smooth cursor-pointer ${
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg shrink-0 transition-smooth cursor-pointer ${
                     timeFilter === tf
                       ? 'bg-[#202020] text-white dark:bg-white dark:text-[#202020]'
                       : 'text-[#777777] hover:text-[#202020] dark:hover:text-white'
@@ -1003,6 +1013,20 @@ export const RegistersView = () => {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* READY WORKFLOW WHATSAPP MODAL */}
+      {pendingReadyAction && (
+        <WhatsAppModal
+          invoice={pendingReadyAction.order}
+          type="ORDER_READY"
+          onClose={() => setPendingReadyAction(null)}
+          onConfirmStatusUpdate={() => {
+            const { order: ord, newStatus: st, serviceIndex: sIdx } = pendingReadyAction;
+            setPendingReadyAction(null);
+            handleUpdateOrderStatus(null, ord, st, sIdx, true);
+          }}
+        />
       )}
 
     </div>

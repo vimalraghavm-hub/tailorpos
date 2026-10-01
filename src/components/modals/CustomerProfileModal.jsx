@@ -21,15 +21,18 @@ import {
   Trash2,
   AlertTriangle,
   Send,
-  Printer
+  Printer,
+  MessageSquare
 } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
 import { GARMENT_MEASUREMENT_TYPES, GARMENT_MEASUREMENT_FIELDS } from '../../data/measurementDefinitions';
 import { CustomerModal } from './CustomerModal';
 import { WorkflowEditorModal } from './WorkflowEditorModal';
 import { PrintInvoiceModal } from './PrintInvoiceModal';
+import { WhatsAppModal } from './WhatsAppModal';
 import { Modal } from '../common/Modal';
 import { useModalDismiss } from '../../utils/modalUtils';
+import { normalizeWhatsAppPhone } from '../../utils/phoneUtils';
 
 export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnClose }) => {
   const { 
@@ -69,7 +72,17 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [orderToDelete, setOrderToDelete] = useState(null);
   const [printInvoiceOrder, setPrintInvoiceOrder] = useState(null);
+  const [whatsAppModalOrder, setWhatsAppModalOrder] = useState(null);
   const [isSubmittingSettle, setIsSubmittingSettle] = useState(false);
+
+  const handleOpenDirectWhatsAppChat = () => {
+    const waPhone = normalizeWhatsAppPhone(customer?.phone);
+    if (!waPhone || waPhone.length < 10) {
+      showToast("Invalid Phone", "Customer phone number is invalid or missing.", "warning");
+      return;
+    }
+    window.open(`https://wa.me/${waPhone}`, '_blank');
+  };
 
   // Editing state for measurements popup
   const [isEditingMeasurements, setIsEditingMeasurements] = useState(false);
@@ -438,6 +451,14 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
             >
               <Trash2 className="w-3.5 h-3.5" />
               Delete
+            </button>
+            <button
+              onClick={handleOpenDirectWhatsAppChat}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 shadow-xs transition-smooth cursor-pointer"
+              title="Open direct WhatsApp chat"
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-white" />
+              WhatsApp Chat
             </button>
             <button
               onClick={() => setShowEditCustomerModal(true)}
@@ -1031,13 +1052,7 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
 
                   <button
                     type="button"
-                    onClick={() => {
-                      const cleanPhone = String(selectedOrderDetail.phone || customer?.phone || '').replaceAll(/\D/g, '');
-                      const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-                      const shopNameStr = settings?.shopName || 'Mohit Tailors';
-                      const text = `Hello ${selectedOrderDetail.customerName || customer?.name}, your invoice #${selectedOrderDetail.id} from ${shopNameStr} is ready! Total: ₹${selectedOrderDetail.total}, Paid: ₹${selectedOrderDetail.advancePaid}, Balance: ₹${selectedOrderDetail.balance}. Delivery Date: ${selectedOrderDetail.dueDate}. Thank you!`;
-                      window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`, '_blank');
-                    }}
+                    onClick={() => setWhatsAppModalOrder(selectedOrderDetail)}
                     className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-smooth cursor-pointer"
                   >
                     <Send className="w-3.5 h-3.5 text-white" /> Share Bill on WhatsApp
@@ -1345,6 +1360,15 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
         <PrintInvoiceModal
           invoice={printInvoiceOrder}
           onClose={() => setPrintInvoiceOrder(null)}
+        />
+      )}
+
+      {/* WHATSAPP BILL SHARE MODAL */}
+      {whatsAppModalOrder && (
+        <WhatsAppModal
+          invoice={whatsAppModalOrder}
+          type="INVOICE"
+          onClose={() => setWhatsAppModalOrder(null)}
         />
       )}
 

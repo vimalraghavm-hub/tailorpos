@@ -299,6 +299,7 @@ export const CustomerModal = ({
                     value={name}
                     onChange={(e) => handleNameChange(e.target.value)}
                     onFocus={() => setShowNameDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowNameDropdown(false), 200)}
                     className="w-full px-4 py-2.5 rounded-xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] text-xs font-medium text-[#202020] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#202020]/20"
                     required
                   />
@@ -359,6 +360,7 @@ export const CustomerModal = ({
                         value={phoneNumber}
                         onChange={(e) => handlePhoneChange(e.target.value.replace(/\D/g, '').slice(0, 10))}
                         onFocus={() => setShowPhoneDropdown(true)}
+                        onBlur={() => setTimeout(() => setShowPhoneDropdown(false), 200)}
                         maxLength={10}
                         className={`w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#F5F5F5] dark:bg-[#252525] border ${
                           phoneNumber.length > 0 && phoneNumber.length < 10
