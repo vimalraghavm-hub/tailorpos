@@ -1483,7 +1483,8 @@ export const ShopProvider = ({ children }) => {
     }
 
     // New Order Save Flow
-    const newId = `${settings.invoicePrefix}${settings.nextInvoiceNumber}`;
+    let proposedId = `${settings.invoicePrefix}${settings.nextInvoiceNumber}`;
+    let finalInvoiceId = proposedId;
     let createdDbId = null;
     let realCustomerId = customerObj?.id;
 
@@ -1492,7 +1493,7 @@ export const ShopProvider = ({ children }) => {
         shopId,
         {
           ...invoiceData,
-          invoice_number: newId,
+          invoice_number: proposedId,
           customerId: realCustomerId,
           customerName: invoiceData.customerName,
           phone: invoiceData.phone,
@@ -1517,6 +1518,9 @@ export const ShopProvider = ({ children }) => {
 
       if (orderRes.data) {
         createdDbId = orderRes.data.id;
+        if (orderRes.data.invoice_number) {
+          finalInvoiceId = orderRes.data.invoice_number;
+        }
         if (orderRes.data.customer_id) {
           realCustomerId = orderRes.data.customer_id;
         }
@@ -1578,7 +1582,8 @@ export const ShopProvider = ({ children }) => {
       material: "Customer Fabric",
       garmentType: "Custom Stitching",
       ...invoiceData,
-      id: newId,
+      id: finalInvoiceId,
+      invoice_number: finalInvoiceId,
       dbId: createdDbId,
       balance,
       extraPaid,
@@ -1591,13 +1596,22 @@ export const ShopProvider = ({ children }) => {
     };
 
     setInvoices(prev => [fullInvoice, ...prev]);
-    setSettings(prev => ({ ...prev, nextInvoiceNumber: prev.nextInvoiceNumber + 1 }));
+
+    const numMatch = String(finalInvoiceId).match(/\d+/);
+    if (numMatch) {
+      const numVal = parseInt(numMatch[0], 10);
+      if (!isNaN(numVal)) {
+        setSettings(prev => ({ ...prev, nextInvoiceNumber: Math.max(prev.nextInvoiceNumber, numVal + 1) }));
+      }
+    } else {
+      setSettings(prev => ({ ...prev, nextInvoiceNumber: prev.nextInvoiceNumber + 1 }));
+    }
 
     setNotifications(prev => [
       {
         id: generateUniqueId('notif'),
         title: "New Order Created",
-        message: `${newId} for ${customerObj.name} (₹${invoiceData.total})`,
+        message: `${finalInvoiceId} for ${customerObj.name} (₹${invoiceData.total})`,
         time: "Just now",
         read: false,
         type: "success"
@@ -1605,8 +1619,8 @@ export const ShopProvider = ({ children }) => {
       ...prev
     ]);
 
-    showToast("Invoice Saved", `Successfully generated ${newId}`, "success");
-    setSelectedInvoiceId(newId);
+    showToast("Invoice Saved", `Successfully generated ${finalInvoiceId}`, "success");
+    setSelectedInvoiceId(finalInvoiceId);
     
     // Refresh analytics & customer profile data
     loadAnalytics();

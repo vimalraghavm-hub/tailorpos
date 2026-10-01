@@ -348,8 +348,69 @@ export async function getOrderDetails(orderId) {
     };
 }
 
-export async function createOrder(shopId, orderData, authUserId) {
+export async function getAuthoritativeNextInvoiceNumber(shopId = 'a1000000-0000-0000-0000-000000000001', prefix = 'INV-') {
+  try {
+    if (!isSupabaseConfigured || !supabase) return `${prefix}1001`;
+
+    // Try Database RPC if available
+    try {
+      const { data: rpcInv, error: rpcErr } = await supabase.rpc('get_next_invoice_number', { p_shop_id: shopId, p_prefix: prefix });
+      if (!rpcErr && rpcInv && typeof rpcInv === 'string' && rpcInv.trim()) {
+        return rpcInv.trim();
+      }
+    } catch (e) {}
+
+    // Fallback DB inspection: query database for authoritative orders
+    const { data: existingOrders, error } = await supabase
+      .from('orders')
+      .select('invoice_number')
+      .eq('shop_id', shopId);
+
+    if (error || !existingOrders) {
+      console.warn('Notice fetching existing orders for invoice numbering, defaulting:', error?.message);
+      return `${prefix}1001`;
+    }
+
+    let maxNum = 1000;
+    const existingSet = new Set();
+
+    existingOrders.forEach(o => {
+      if (o.invoice_number) {
+        existingSet.add(o.invoice_number);
+        const match = String(o.invoice_number).match(/INV-(\d+)/i) || String(o.invoice_number).match(/(\d+)/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num < 9000 && num > maxNum) {
+            maxNum = num;
+          }
+        }
+      }
+    });
+
+    let candidateNum = maxNum + 1;
+    let candidateStr = `${prefix}${candidateNum}`;
+
+    // Loop to strictly guarantee zero collision with any invoice number in DB
+    while (existingSet.has(candidateStr)) {
+      candidateNum++;
+      candidateStr = `${prefix}${candidateNum}`;
+    }
+
+    return candidateStr;
+  } catch (err) {
+    console.error("Error in getAuthoritativeNextInvoiceNumber:", err);
+    return `${prefix}1001`;
+  }
+}
+
+export async function createOrder(shopId, orderData, authUserId, retryCount = 0) {
     if (!isSupabaseConfigured) return null;
+
+    // Resolve authoritative next invoice number if missing or if retrying on collision
+    let targetInvoiceNumber = orderData.invoice_number;
+    if (!targetInvoiceNumber || retryCount > 0) {
+      targetInvoiceNumber = await getAuthoritativeNextInvoiceNumber(shopId);
+    }
 
     // Backend validation of financial totals
     const lineItems = orderData.services || [];
@@ -372,7 +433,7 @@ export async function createOrder(shopId, orderData, authUserId) {
         p_customer_phone: orderData.phone || '',
         p_customer_address: orderData.address || null,
         p_customer_notes: orderData.notes || null,
-        p_invoice_number: orderData.invoice_number || `INV-${Date.now().toString().slice(-4)}`,
+        p_invoice_number: targetInvoiceNumber,
         p_order_date: orderData.date || new Date().toISOString().split('T')[0],
         p_due_date: orderData.dueDate || new Date().toISOString().split('T')[0],
         p_subtotal: subtotal,
@@ -418,10 +479,19 @@ export async function createOrder(shopId, orderData, authUserId) {
           .eq('id', rpcRes.order_id)
           .maybeSingle();
 
+        const finalOrder = createdOrder || { id: rpcRes.order_id, customer_id: rpcRes.customer_id, invoice_number: rpcRes.invoice_number || targetInvoiceNumber };
         return { 
           success: true, 
-          data: createdOrder || { id: rpcRes.order_id, customer_id: rpcRes.customer_id } 
+          data: finalOrder 
         };
+      }
+
+      const rpcErrMsg = rpcRes?.error || rpcErr?.message || '';
+      if (rpcErrMsg.includes('unique_shop_invoice') || rpcErrMsg.includes('duplicate key') || rpcErrMsg.includes('23505')) {
+        if (retryCount < 3) {
+          console.warn(`[RETRY ON RPC CONFLICT] Invoice collision on ${targetInvoiceNumber}. Auto-allocating next invoice number...`);
+          return createOrder(shopId, { ...orderData, invoice_number: null }, authUserId, retryCount + 1);
+        }
       }
 
       if (rpcErr) {
@@ -489,7 +559,7 @@ export async function createOrder(shopId, orderData, authUserId) {
       .insert([{
         shop_id: shopId,
         customer_id: verifiedCustomerId,
-        invoice_number: orderData.invoice_number || `INV-${Date.now().toString().slice(-4)}`,
+        invoice_number: targetInvoiceNumber,
         order_date: orderData.date || new Date().toISOString().split('T')[0],
         due_date: orderData.dueDate || new Date().toISOString().split('T')[0],
         subtotal,
@@ -508,6 +578,13 @@ export async function createOrder(shopId, orderData, authUserId) {
       .maybeSingle();
 
     if (orderError) {
+      const errStr = orderError.message || '';
+      if (errStr.includes('unique_shop_invoice') || errStr.includes('duplicate key') || errStr.includes('23505')) {
+        if (retryCount < 3) {
+          console.warn(`[RETRY ON FALLBACK CONFLICT] Invoice collision on ${targetInvoiceNumber}. Auto-allocating next invoice number...`);
+          return createOrder(shopId, { ...orderData, invoice_number: null }, authUserId, retryCount + 1);
+        }
+      }
       console.error('Error creating order:', orderError);
       return { success: false, error: `Order creation failed: ${orderError.message}` };
     }
@@ -777,6 +854,7 @@ export async function deleteOrder(shopId, orderId) {
 
 export const ordersService = {
   fetchAllOrders,
+  getAuthoritativeNextInvoiceNumber,
   markOrderDelivered,
   markOrderDeliveredAndPaid,
   removeOrderFromRegister,
