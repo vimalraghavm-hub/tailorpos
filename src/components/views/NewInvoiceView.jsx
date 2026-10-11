@@ -427,7 +427,7 @@ export const NewInvoiceView = () => {
                     >
                       <div>
                         <span className="font-bold text-sm text-[#202020] dark:text-white block">{cust.name}</span>
-                        <span className="text-xs text-[#777777] font-mono">{cust.phone} • {cust.address || 'Local Customer'}</span>
+                        <span className="text-xs text-[#777777] font-mono">{cust.phone} • {cust.totalOrders || 0} Orders • {cust.address || 'Local Customer'}</span>
                       </div>
                       <span className="text-xs font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1.5 rounded-xl flex items-center gap-1">
                         Select Customer <ChevronRight className="w-3.5 h-3.5" />

@@ -293,17 +293,59 @@ export const customersService = {
     }
   },
 
+  async deleteCustomerPermanent(customerId) {
+    if (!isSupabaseConfigured || !customerId) return { success: true };
+
+    try {
+      const cIdStr = String(customerId);
+
+      // 1. Fetch all order IDs belonging to this customer
+      const { data: custOrders } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('customer_id', cIdStr);
+
+      const orderIds = (custOrders || []).map(o => String(o.id));
+
+      if (orderIds.length > 0) {
+        // Delete all child records associated with these orders
+        await Promise.all([
+          supabase.from('order_items').delete().in('order_id', orderIds),
+          supabase.from('payments').delete().in('order_id', orderIds),
+          supabase.from('order_status_history').delete().in('order_id', orderIds),
+          supabase.from('order_assignments').delete().in('order_id', orderIds)
+        ]);
+
+        // Delete orders
+        await supabase.from('orders').delete().in('id', orderIds);
+      }
+
+      // 2. Delete customer-specific measurements, assignments, and direct payments
+      await Promise.all([
+        supabase.from('measurements').delete().eq('customer_id', cIdStr),
+        supabase.from('customer_assignments').delete().eq('customer_id', cIdStr),
+        supabase.from('payments').delete().eq('customer_id', cIdStr)
+      ]);
+
+      // 3. Delete customer profile row permanently from customers table
+      const { data, error } = await supabase
+        .from('customers')
+        .delete()
+        .eq('id', cIdStr)
+        .select();
+
+      if (error) {
+        console.error('Error deleting customer permanently:', error);
+        return { success: false, error: error.message };
+      }
+      return { success: true, data };
+    } catch (e) {
+      console.error('Exception deleting customer permanently:', e);
+      return { success: false, error: e?.message || e };
+    }
+  },
+
   async softDeleteCustomer(customerId) {
-    if (!isSupabaseConfigured) return { success: true };
-
-    const { data, error } = await supabase
-      .from('customers')
-      .update({ is_deleted: true, updated_at: new Date().toISOString() })
-      .eq('id', customerId)
-      .select()
-      .single();
-
-    if (error) return { success: false, error: error.message };
-    return { success: true, data };
+    return this.deleteCustomerPermanent(customerId);
   }
 };

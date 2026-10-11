@@ -8,6 +8,16 @@ export const analyticsService = {
       console.error('Error fetching dashboard summary:', error);
       return null;
     }
+    if (data && typeof data === 'object') {
+      const todayRev = parseFloat(data.today_revenue) || 0;
+      const todayExp = parseFloat(data.today_expenses) || 0;
+      return {
+        ...data,
+        today_revenue: todayRev,
+        today_expenses: todayExp,
+        estimated_net: todayRev - todayExp
+      };
+    }
     return data;
   },
 

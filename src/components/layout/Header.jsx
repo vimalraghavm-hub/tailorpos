@@ -84,28 +84,28 @@ export const Header = () => {
   };
 
   return (
-    <header className="sticky top-0 z-20 bg-[#F5F5F5]/90 dark:bg-[#141414]/90 backdrop-blur-md border-b border-[#E3E3E3] dark:border-[#333333] px-4 md:px-8 py-4 transition-smooth">
+    <header className="sticky top-0 z-20 bg-[#F5F5F5]/90 dark:bg-[#141414]/90 backdrop-blur-md border-b border-[#E3E3E3] dark:border-[#333333] px-3 sm:px-4 md:px-8 py-2.5 sm:py-4 transition-smooth">
       {dbConnectionError && (
         <div className="mb-3 p-3 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-300 text-xs font-bold flex items-center justify-between gap-2">
           <span>⚠️ {dbConnectionError}</span>
         </div>
       )}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-2 sm:gap-4">
         
         {/* Mobile Menu Trigger & Title / Greeting */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             onClick={() => setMobileMenuOpen(true)}
-            className="md:hidden p-2 rounded-xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] text-[#202020] dark:text-white"
+            className="md:hidden p-1.5 sm:p-2 rounded-xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] text-[#202020] dark:text-white shrink-0"
           >
-            <Menu className="w-5 h-5" />
+            <Menu className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
 
-          <div>
-            <h1 className="text-xl md:text-2xl font-bold text-[#202020] dark:text-[#F5F5F5] tracking-tight">
+          <div className="min-w-0">
+            <h1 className="text-sm sm:text-xl md:text-2xl font-bold text-[#202020] dark:text-[#F5F5F5] tracking-tight truncate">
               {getGreeting()} 👋
             </h1>
-            <p className="text-xs md:text-sm text-[#777777] dark:text-[#9E9E9E] mt-0.5">
+            <p className="hidden sm:block text-xs md:text-sm text-[#777777] dark:text-[#9E9E9E] mt-0.5 truncate">
               Here's what's happening in your shop today.
             </p>
           </div>

@@ -54,16 +54,16 @@ export const AuthModal = ({ isOpen, onClose }) => {
       zIndex={10040}
     >
       {/* Header */}
-      <div className="p-5 border-b border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between bg-[#F5F5F5]/60 dark:bg-[#252525]/60">
+      <div className="p-3.5 sm:p-5 border-b border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between bg-[#F5F5F5]/60 dark:bg-[#252525]/60 shrink-0">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-xl bg-[#202020] text-white dark:bg-white dark:text-[#202020]">
             <ShieldCheck className="w-5 h-5 text-emerald-400 dark:text-emerald-600" />
           </div>
           <div>
-            <h3 className="font-bold text-base text-[#202020] dark:text-white leading-tight">
+            <h3 className="font-bold text-sm sm:text-base text-[#202020] dark:text-white leading-tight">
               User Profile & Security
             </h3>
-            <p className="text-xs text-[#777777]">
+            <p className="text-[11px] sm:text-xs text-[#777777]">
               Supabase Security Portal
             </p>
           </div>
@@ -71,7 +71,7 @@ export const AuthModal = ({ isOpen, onClose }) => {
       </div>
 
       {/* Body */}
-      <div className="p-6 space-y-5 text-xs">
+      <div className="p-4 sm:p-6 space-y-4 text-xs overflow-y-auto flex-1">
         {user ? (
           /* LOGGED IN USER PROFILE SUMMARY */
           <div className="space-y-4">

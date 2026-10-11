@@ -72,9 +72,16 @@ export const expensesService = {
     }
 
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    let createdByVal = validUserId;
-    if (!createdByVal && profileId && uuidRegex.test(profileId)) {
-      createdByVal = profileId;
+    let createdByVal = null;
+    const candidates = [profileId, validUserId].filter(id => id && uuidRegex.test(id));
+    for (const cand of candidates) {
+      try {
+        const { data: prof } = await supabase.from('profiles').select('id').eq('id', cand).maybeSingle();
+        if (prof?.id) {
+          createdByVal = prof.id;
+          break;
+        }
+      } catch (_) {}
     }
 
     try {
@@ -87,7 +94,7 @@ export const expensesService = {
           expense_date: expenseData.expenseDate || new Date().toISOString().split('T')[0],
           description: expenseData.description || null,
           payment_method: (expenseData.paymentMethod || 'CASH').toUpperCase(),
-          created_by: createdByVal || null
+          created_by: createdByVal
         }])
         .select('*, expense_categories(id, name)')
         .single();

@@ -83,16 +83,16 @@ export const WorkerPermissionsModal = ({ worker, onClose }) => {
       zIndex={10030}
     >
       {/* Header */}
-      <div className="p-5 border-b border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between bg-[#F5F5F5]/60 dark:bg-[#252525]/60">
+      <div className="p-3.5 sm:p-5 border-b border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between bg-[#F5F5F5]/60 dark:bg-[#252525]/60 shrink-0">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-purple-600 text-white">
             <Shield className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="font-bold text-base text-[#202020] dark:text-white">
+            <h3 className="font-bold text-sm sm:text-base text-[#202020] dark:text-white">
               Edit Permissions: {worker.full_name}
             </h3>
-            <p className="text-xs text-[#777777]">Configure tab routing and granular access rights for {worker.email}</p>
+            <p className="text-[11px] sm:text-xs text-[#777777]">Configure tab routing and granular access rights for {worker.email}</p>
           </div>
         </div>
         <button
@@ -104,7 +104,7 @@ export const WorkerPermissionsModal = ({ worker, onClose }) => {
       </div>
 
       {/* Body */}
-      <div className="p-6 space-y-4">
+      <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
         {/* Tab Routing */}
         <div className="space-y-2 pb-3 border-b border-[#E3E3E3] dark:border-[#333333]">
           <span className="font-bold text-xs text-[#202020] dark:text-white">Permitted Navigation Tabs (`permissions.tabs`):</span>
@@ -131,7 +131,7 @@ export const WorkerPermissionsModal = ({ worker, onClose }) => {
         </div>
 
         {/* Feature Flags */}
-        <div className="grid grid-cols-1 gap-2.5 max-h-[300px] overflow-y-auto pr-1">
+        <div className="grid grid-cols-1 gap-2.5 pr-1">
           {permissionList.map((perm) => {
             const isEnabled = Boolean(permissions[perm.key]);
             return (
@@ -157,26 +157,26 @@ export const WorkerPermissionsModal = ({ worker, onClose }) => {
             );
           })}
         </div>
+      </div>
 
-        {/* Footer Actions */}
-        <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#E3E3E3] dark:border-[#333333]">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-semibold text-[#777777] hover:text-[#202020]"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={isSaving}
-            onClick={handleSave}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-xs disabled:opacity-50 cursor-pointer"
-          >
-            <Save className="w-4 h-4" />
-            {isSaving ? 'Saving...' : 'Save Permissions'}
-          </button>
-        </div>
+      {/* Footer Actions */}
+      <div className="p-3.5 sm:p-4 flex items-center justify-end gap-3 shrink-0 border-t border-[#E3E3E3] dark:border-[#333333] bg-white dark:bg-[#1E1E1E]">
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-4 py-2 rounded-xl text-xs font-semibold text-[#777777] hover:text-[#202020]"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={isSaving}
+          onClick={handleSave}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-xs disabled:opacity-50 cursor-pointer"
+        >
+          <Save className="w-4 h-4" />
+          {isSaving ? 'Saving...' : 'Save Permissions'}
+        </button>
       </div>
     </Modal>
   );

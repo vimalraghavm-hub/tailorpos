@@ -61,7 +61,7 @@ export const Modal = ({
   const modalNode = (
     <div
       onClick={handleBackdropClick}
-      className="fixed inset-0 w-screen h-screen flex items-center justify-center p-4 sm:p-6 animate-backdrop-in no-print-backdrop"
+      className="fixed inset-0 w-screen h-screen flex items-center justify-center p-2 sm:p-6 animate-backdrop-in no-print-backdrop"
       style={{
         zIndex: overlayZ,
         backdropFilter: 'blur(6px)',
@@ -71,7 +71,7 @@ export const Modal = ({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`relative w-full ${resolvedWidthClass} max-h-[calc(100vh-48px)] bg-white dark:bg-[#1E1E1E] rounded-3xl shadow-2xl border border-[#E3E3E3] dark:border-[#333333] flex flex-col overflow-hidden m-0 animate-modal-in ${className}`}
+        className={`relative w-full ${resolvedWidthClass} max-h-[calc(100dvh-16px)] sm:max-h-[calc(100vh-48px)] bg-white dark:bg-[#1E1E1E] rounded-2xl sm:rounded-3xl shadow-2xl border border-[#E3E3E3] dark:border-[#333333] flex flex-col overflow-hidden m-0 animate-modal-in ${className}`}
         style={{ zIndex: modalContainerZ }}
       >
         {children}

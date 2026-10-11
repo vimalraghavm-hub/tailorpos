@@ -233,7 +233,7 @@ export async function fetchAllOrders(shopId = 'a1000000-0000-0000-0000-000000000
       order_items: itemMap[String(ord.id)] || ord.order_items || []
     }));
 
-    return joinedOrders.filter(ord => !ord.hidden_from_register && !ord.archived_in_register);
+    return joinedOrders;
   } catch (err) {
     console.error("Error in fetchAllOrders:", err);
     return [];
@@ -754,7 +754,31 @@ export async function settleOrderPayment(shopId, orderId, profileId = null) {
     const currentPaid = parseFloat(ord.total_paid) || 0;
     const remainingBalance = Math.max(0, totalAmount - currentPaid);
 
-    if (remainingBalance <= 0) return { success: true };
+    if (remainingBalance <= 0) {
+      // Authoritatively ensure order and order items are marked DELIVERED
+      await supabase
+        .from('orders')
+        .update({
+          status: 'DELIVERED',
+          overall_status: 'DELIVERED',
+          workflow_status: 'DELIVERED',
+          is_delivered: true,
+          payment_status: 'PAID',
+          balance_amount: 0,
+          pending_amount: 0,
+          balance_due: 0,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', orderUuid);
+
+      await supabase
+        .from('order_items')
+        .update({ status: 'DELIVERED', updated_at: new Date().toISOString() })
+        .eq('order_id', orderUuid)
+        .neq('status', 'CANCELLED');
+
+      return { success: true };
+    }
 
     return await paymentsService.recordPayment(
       shopId,
@@ -796,25 +820,28 @@ export async function deleteOrder(shopId, orderId) {
   if (!isSupabaseConfigured || !orderId) return { success: true };
 
   try {
+    const canonicalId = await resolveOrderId(shopId, orderId) || orderId;
+
     const { data: targetOrd } = await supabase
       .from('orders')
       .select('customer_id')
-      .eq('id', orderId)
+      .eq('id', canonicalId)
       .maybeSingle();
 
     const customerId = targetOrd?.customer_id;
 
     // Delete child records first
     await Promise.all([
-      supabase.from('order_items').delete().eq('order_id', orderId),
-      supabase.from('payments').delete().eq('order_id', orderId),
-      supabase.from('order_status_history').delete().eq('order_id', orderId)
+      supabase.from('order_items').delete().eq('order_id', canonicalId),
+      supabase.from('payments').delete().eq('order_id', canonicalId),
+      supabase.from('order_status_history').delete().eq('order_id', canonicalId),
+      supabase.from('order_assignments').delete().eq('order_id', canonicalId)
     ]);
 
     const { data, error } = await supabase
       .from('orders')
       .delete()
-      .eq('id', orderId)
+      .eq('id', canonicalId)
       .eq('shop_id', shopId)
       .select();
 

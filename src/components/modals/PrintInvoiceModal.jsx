@@ -57,22 +57,31 @@ export const PrintInvoiceModal = ({ invoice, onClose }) => {
     >
         
         {/* Header (hidden in print) */}
-        <div className="p-5 border-b border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between no-print">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-[#202020] text-white">
-              <Printer className="w-5 h-5" />
+        <div className="p-3.5 sm:p-5 border-b border-[#E3E3E3] dark:border-[#333333] flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0 bg-[#F5F5F5]/60 dark:bg-[#252525]/60 no-print">
+          <div className="flex items-center justify-between sm:justify-start gap-3 w-full sm:w-auto">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-[#202020] text-white">
+                <Printer className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm sm:text-base text-[#202020] dark:text-white">Print Receipt / Invoice</h3>
+                <p className="text-[11px] sm:text-xs text-[#777777] dark:text-[#9E9E9E]">Invoice {invoice.id}</p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-bold text-base text-[#202020] dark:text-white">Print Receipt / Invoice</h3>
-              <p className="text-xs text-[#777777] dark:text-[#9E9E9E]">Invoice {invoice.id}</p>
-            </div>
+
+            <button
+              onClick={onClose}
+              className="sm:hidden p-2 rounded-xl hover:bg-[#EEEEEE] dark:hover:bg-[#282828] text-[#777777] cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
 
           {/* Format selector */}
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-[#F5F5F5] dark:bg-[#282828] border border-[#E3E3E3] dark:border-[#333333]">
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-[#F5F5F5] dark:bg-[#282828] border border-[#E3E3E3] dark:border-[#333333] self-stretch sm:self-auto justify-stretch">
             <button
               onClick={() => setPrintFormat('thermal')}
-              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-smooth cursor-pointer ${
+              className={`flex-1 sm:flex-initial px-2.5 py-1 text-[11px] sm:text-xs font-semibold rounded-lg transition-smooth cursor-pointer text-center ${
                 printFormat === 'thermal'
                   ? 'bg-white dark:bg-[#1E1E1E] text-[#202020] dark:text-white shadow-xs'
                   : 'text-[#777777] hover:text-[#202020]'
@@ -82,7 +91,7 @@ export const PrintInvoiceModal = ({ invoice, onClose }) => {
             </button>
             <button
               onClick={() => setPrintFormat('payment_slip')}
-              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-smooth cursor-pointer ${
+              className={`flex-1 sm:flex-initial px-2.5 py-1 text-[11px] sm:text-xs font-semibold rounded-lg transition-smooth cursor-pointer text-center ${
                 printFormat === 'payment_slip'
                   ? 'bg-white dark:bg-[#1E1E1E] text-[#202020] dark:text-white shadow-xs'
                   : 'text-[#777777] hover:text-[#202020]'
@@ -92,7 +101,7 @@ export const PrintInvoiceModal = ({ invoice, onClose }) => {
             </button>
             <button
               onClick={() => setPrintFormat('a4')}
-              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-smooth cursor-pointer ${
+              className={`flex-1 sm:flex-initial px-2.5 py-1 text-[11px] sm:text-xs font-semibold rounded-lg transition-smooth cursor-pointer text-center ${
                 printFormat === 'a4'
                   ? 'bg-white dark:bg-[#1E1E1E] text-[#202020] dark:text-white shadow-xs'
                   : 'text-[#777777] hover:text-[#202020]'
@@ -104,14 +113,14 @@ export const PrintInvoiceModal = ({ invoice, onClose }) => {
 
           <button
             onClick={onClose}
-            className="p-2 rounded-xl hover:bg-[#EEEEEE] dark:hover:bg-[#282828] text-[#777777] cursor-pointer"
+            className="hidden sm:block p-2 rounded-xl hover:bg-[#EEEEEE] dark:hover:bg-[#282828] text-[#777777] cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Receipt Container */}
-        <div className="flex-1 p-6 overflow-y-auto bg-[#F5F5F5] dark:bg-[#141414] flex justify-center">
+        <div className="flex-1 p-4 sm:p-6 overflow-y-auto bg-[#F5F5F5] dark:bg-[#141414] flex justify-center">
           <div 
             id="printable-invoice"
             className={`bg-white text-black p-4 font-mono border border-dashed border-gray-300 shadow-md transition-all ${
@@ -318,25 +327,25 @@ export const PrintInvoiceModal = ({ invoice, onClose }) => {
         </div>
 
         {/* Footer Actions (hidden in print) */}
-        <div className="p-4 border-t border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between no-print">
+        <div className="p-3.5 sm:p-4 border-t border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between gap-2.5 flex-wrap shrink-0 bg-white dark:bg-[#1E1E1E] no-print">
           <button
             onClick={onClose}
-            className="px-4 py-2.5 rounded-xl border border-[#E3E3E3] dark:border-[#333333] font-semibold text-sm text-[#202020] dark:text-white hover:bg-[#EEEEEE] dark:hover:bg-[#282828] cursor-pointer"
+            className="px-4 py-2.5 rounded-xl border border-[#E3E3E3] dark:border-[#333333] font-semibold text-xs sm:text-sm text-[#202020] dark:text-white hover:bg-[#EEEEEE] dark:hover:bg-[#282828] cursor-pointer"
           >
             Cancel
           </button>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handleWhatsAppShare}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-md transition-smooth cursor-pointer"
+              className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-md transition-smooth cursor-pointer"
             >
               <Send className="w-4 h-4 text-white" />
               Share Bill on WhatsApp
             </button>
             <button
               onClick={handlePrint}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#202020] dark:bg-white text-white dark:text-[#202020] font-bold text-sm hover:opacity-90 transition-smooth shadow-md cursor-pointer"
+              className="flex items-center gap-2 px-5 sm:px-6 py-2.5 rounded-xl bg-[#202020] dark:bg-white text-white dark:text-[#202020] font-bold text-xs sm:text-sm hover:opacity-90 transition-smooth shadow-md cursor-pointer"
             >
               <Printer className="w-4 h-4" />
               Print Document

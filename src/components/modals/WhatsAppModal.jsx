@@ -132,14 +132,14 @@ export const WhatsAppModal = ({
       zIndex={zIndex}
     >
       {/* Modal Header */}
-      <div className="p-5 bg-emerald-600 text-white flex items-center justify-between">
+      <div className="p-3.5 sm:p-5 bg-emerald-600 text-white flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-xl bg-white/20">
             <MessageSquare className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h3 className="font-bold text-base">{headerTitle}</h3>
-            <p className="text-xs opacity-90">Customer: {custName} ({formattedDisplayPhone})</p>
+            <h3 className="font-bold text-sm sm:text-base">{headerTitle}</h3>
+            <p className="text-[11px] sm:text-xs opacity-90">Customer: {custName} ({formattedDisplayPhone})</p>
           </div>
         </div>
         <button
@@ -151,7 +151,7 @@ export const WhatsAppModal = ({
       </div>
 
       {/* Modal Body */}
-      <div className="p-6 space-y-4">
+      <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
         <div>
           <label className="block text-xs font-bold text-[#777777] uppercase tracking-wider mb-2">
             Editable WhatsApp Message
@@ -180,7 +180,7 @@ export const WhatsAppModal = ({
       </div>
 
       {/* Footer Actions */}
-      <div className="p-4 border-t border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between gap-2 flex-wrap">
+      <div className="p-3.5 sm:p-4 border-t border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between gap-2.5 flex-wrap shrink-0 bg-white dark:bg-[#1E1E1E]">
         <button
           onClick={handleCopy}
           className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-[#E3E3E3] dark:border-[#333333] font-semibold text-xs text-[#202020] dark:text-white hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth cursor-pointer"

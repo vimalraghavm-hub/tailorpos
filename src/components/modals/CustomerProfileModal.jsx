@@ -38,6 +38,7 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
   const { 
     customers, 
     invoices, 
+    allInvoices = [],
     measurementTemplates,
     activeProfileCustomerId, 
     closeCustomerProfile, 
@@ -201,7 +202,7 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
       }
     });
 
-    const tabsList = Array.from(tabsMap.values());
+    const tabsList = Array.from(tabsMap.values()).filter(t => t.id !== 'trouser');
     const customTab = tabsList.find(t => t.id === 'custom');
     const otherTabs = tabsList.filter(t => t.id !== 'custom');
     return customTab ? [...otherTabs, customTab] : tabsList;
@@ -354,7 +355,7 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
     setActivePopup('order-detail');
   };
 
-  const selectedOrderDetail = (invoices || []).find(inv => inv && (inv.id === selectedOrderDetailId || inv.dbId === selectedOrderDetailId || String(inv.invoice_number) === String(selectedOrderDetailId)));
+  const selectedOrderDetail = (invoices || []).find(inv => inv && (inv.id === selectedOrderDetailId || inv.dbId === selectedOrderDetailId || String(inv.invoice_number) === String(selectedOrderDetailId))) || (allInvoices || []).find(inv => inv && (inv.id === selectedOrderDetailId || inv.dbId === selectedOrderDetailId || String(inv.invoice_number) === String(selectedOrderDetailId)));
 
   // Status badge styling helper (information only)
   const getStatusBadgeClass = (st) => {
@@ -428,55 +429,56 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
       >
         
         {/* Header */}
-        <div className="p-6 border-b border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between bg-[#F5F5F5]/60 dark:bg-[#252525]/60">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-[#202020] text-white flex items-center justify-center font-bold text-lg shadow-sm">
+        <div className="p-3.5 sm:p-6 border-b border-[#E3E3E3] dark:border-[#333333] flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#F5F5F5]/60 dark:bg-[#252525]/60 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#202020] text-white flex items-center justify-center font-bold text-sm sm:text-lg shadow-sm shrink-0">
               {(customer?.name || 'Customer').trim().slice(0, 2).toUpperCase()}
             </div>
-            <div>
-              <h2 className="text-xl font-bold text-[#202020] dark:text-white leading-tight">
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-xl font-bold text-[#202020] dark:text-white leading-tight truncate">
                 {(customer?.name || 'Customer').toUpperCase()}
               </h2>
-              <p className="text-xs text-[#777777] font-mono mt-0.5">
+              <p className="text-[11px] sm:text-xs text-[#777777] font-mono mt-0.5 truncate">
                 {displayPhone} • {displayAddress}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap">
             <button
               onClick={() => setShowDeleteConfirm(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 text-xs font-semibold cursor-pointer transition-smooth"
+              className="flex items-center gap-1 px-2 py-1.5 sm:px-3 sm:py-2 rounded-xl border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 text-[11px] sm:text-xs font-semibold cursor-pointer transition-smooth"
               title="Delete Customer Profile"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              Delete
+              <span className="hidden xs:inline">Delete</span>
             </button>
             <button
               onClick={handleOpenDirectWhatsAppChat}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 shadow-xs transition-smooth cursor-pointer"
+              className="flex items-center gap-1 px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-emerald-600 text-white font-bold text-[11px] sm:text-xs hover:bg-emerald-700 shadow-xs transition-smooth cursor-pointer"
               title="Open direct WhatsApp chat"
             >
               <MessageSquare className="w-3.5 h-3.5 text-white" />
-              WhatsApp Chat
+              <span>WhatsApp</span>
             </button>
             <button
               onClick={() => setShowEditCustomerModal(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-[#E3E3E3] dark:border-[#333333] font-semibold text-xs text-[#202020] dark:text-white hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth cursor-pointer"
+              className="flex items-center gap-1 px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl border border-[#E3E3E3] dark:border-[#333333] font-semibold text-[11px] sm:text-xs text-[#202020] dark:text-white hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth cursor-pointer"
             >
               <Edit3 className="w-3.5 h-3.5 text-emerald-600" />
-              Edit Customer
+              <span className="hidden sm:inline">Edit Customer</span>
+              <span className="sm:hidden">Edit</span>
             </button>
             <button
               onClick={handleStartNewOrder}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#202020] text-white dark:bg-white dark:text-[#202020] font-bold text-xs hover:opacity-90 shadow-xs transition-smooth cursor-pointer"
+              className="flex items-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl bg-[#202020] text-white dark:bg-white dark:text-[#202020] font-bold text-[11px] sm:text-xs hover:opacity-90 shadow-xs transition-smooth cursor-pointer"
             >
-              <PlusCircle className="w-4 h-4 text-emerald-400 dark:text-emerald-600" />
-              + New Order
+              <PlusCircle className="w-3.5 h-3.5 text-emerald-400 dark:text-emerald-600" />
+              <span>+ Order</span>
             </button>
             <button
               onClick={closeCustomerProfile}
-              className="p-2 rounded-xl text-[#777777] hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth cursor-pointer"
+              className="p-1.5 sm:p-2 rounded-xl text-[#777777] hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth cursor-pointer ml-auto sm:ml-0"
             >
               <X className="w-5 h-5" />
             </button>
@@ -484,74 +486,74 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
         </div>
 
         {/* Central Hub Main Content */}
-        <div className="p-6 space-y-6 overflow-y-auto flex-1">
+        <div className="p-3.5 sm:p-6 space-y-3.5 sm:space-y-6 overflow-y-auto flex-1">
 
           {/* Customer Notes */}
           {customer.notes && (
-            <div className="p-3.5 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] text-xs">
+            <div className="p-3 rounded-xl sm:rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] text-xs">
               <span className="font-bold text-[#777777] uppercase text-[10px] block mb-1">Customer Notes:</span>
               <p className="text-[#202020] dark:text-white">{customer.notes}</p>
             </div>
           )}
 
           {/* Three Summary Areas Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
             
             {/* 1. Orders Summary Card */}
             <button
               onClick={handleOpenOrders}
-              className="p-4 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] hover:border-blue-500/50 transition-smooth text-center group cursor-pointer"
+              className="p-2.5 sm:p-4 rounded-xl sm:rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] hover:border-blue-500/50 transition-smooth text-center group cursor-pointer"
             >
-              <span className="text-[11px] font-bold text-[#777777] uppercase tracking-wider block mb-1">
+              <span className="text-[10px] sm:text-[11px] font-bold text-[#777777] uppercase tracking-wider block mb-0.5 sm:mb-1">
                 Orders
               </span>
-              <span className="text-2xl font-bold text-[#202020] dark:text-white block group-hover:text-blue-600 transition-smooth">
+              <span className="text-base sm:text-2xl font-bold text-[#202020] dark:text-white block group-hover:text-blue-600 transition-smooth">
                 {totalOrders}
               </span>
-              <span className="text-[10px] text-blue-600 font-bold underline block mt-1">
-                View History
+              <span className="text-[9px] sm:text-[10px] text-blue-600 font-bold underline block mt-0.5 sm:mt-1">
+                History
               </span>
             </button>
 
             {/* 2. Total Spent Summary Card */}
-            <div className="p-4 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] text-center">
-              <span className="text-[11px] font-bold text-[#777777] uppercase tracking-wider block mb-1">
+            <div className="p-2.5 sm:p-4 rounded-xl sm:rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] text-center">
+              <span className="text-[10px] sm:text-[11px] font-bold text-[#777777] uppercase tracking-wider block mb-0.5 sm:mb-1">
                 Total Spent
               </span>
-              <span className="text-xl font-bold text-[#202020] dark:text-white block">
+              <span className="text-xs sm:text-xl font-bold text-[#202020] dark:text-white block truncate">
                 ₹{totalSpent.toLocaleString('en-IN')}
               </span>
-              <span className="text-[10px] text-[#777777] block mt-1">
-                Lifetime Value
+              <span className="text-[9px] sm:text-[10px] text-[#777777] block mt-0.5 sm:mt-1">
+                Lifetime
               </span>
             </div>
 
             {/* 3. Balance Summary Card */}
-            <div className="p-4 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] text-center">
-              <span className="text-[11px] font-bold text-[#777777] uppercase tracking-wider block mb-1">
+            <div className="p-2.5 sm:p-4 rounded-xl sm:rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] text-center">
+              <span className="text-[10px] sm:text-[11px] font-bold text-[#777777] uppercase tracking-wider block mb-0.5 sm:mb-1">
                 Balance
               </span>
-              <span className={`text-xl font-bold block ${balance > 0 ? 'text-[#B85C5C]' : 'text-emerald-600'}`}>
+              <span className={`text-xs sm:text-xl font-bold block truncate ${balance > 0 ? 'text-[#B85C5C]' : 'text-emerald-600'}`}>
                 ₹{balance.toLocaleString('en-IN')}
               </span>
-              <span className="text-[10px] text-[#777777] block mt-1">
-                {balance > 0 ? 'Outstanding Due' : 'Fully Cleared'}
+              <span className="text-[9px] sm:text-[10px] text-[#777777] block mt-0.5 sm:mt-1">
+                {balance > 0 ? 'Due' : 'Cleared'}
               </span>
             </div>
 
           </div>
 
           {/* Customer Profile Quick Overview List */}
-          <div className="p-5 rounded-2xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] space-y-3">
+          <div className="p-3.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] space-y-2 sm:space-y-3">
             <h3 className="font-bold text-xs uppercase tracking-wider text-[#777777] flex items-center justify-between">
               <span>Saved Measurements Summary</span>
               <button onClick={handleOpenMeasurements} className="text-emerald-600 hover:underline text-xs capitalize">
-                View Full Popup →
+                Full Popup →
               </button>
             </h3>
 
             {Object.keys(filledCustomerMeasurements).length > 0 ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-2.5 text-xs">
                 {Object.entries(filledCustomerMeasurements).map(([garment, fields]) => (
                   <div key={garment} className="p-2.5 rounded-xl bg-[#F5F5F5] dark:bg-[#252525] space-y-1">
                     <span className="font-bold text-[11px] text-[#202020] dark:text-white capitalize block border-b border-[#E3E3E3] dark:border-[#333333] pb-1">
@@ -921,42 +923,42 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
       {/* ================================================== */}
       <Modal 
         isOpen={activePopup === 'orders'}
-        onClose={() => setActivePopup(null)}
+        onClose={() => setActivePopup(selectedOrderDetailId ? 'order-detail' : null)}
         size="md"
-        zIndex={10010}
+        zIndex={selectedOrderDetailId ? 10040 : 10010}
       >
             
             {/* Header */}
-            <div className="p-5 border-b border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between bg-[#F5F5F5]/60 dark:bg-[#252525]/60">
+            <div className="p-3.5 sm:p-5 border-b border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between bg-[#F5F5F5]/60 dark:bg-[#252525]/60 shrink-0">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-xl bg-[#202020] text-white dark:bg-white dark:text-[#202020]">
+                <div className="p-2 rounded-xl bg-[#202020] text-white dark:bg-white dark:text-[#202020] shrink-0">
                   <FileText className="w-5 h-5 text-blue-400 dark:text-blue-600" />
                 </div>
-                <div>
-                  <h3 className="font-bold text-base text-[#202020] dark:text-white">Customer Orders</h3>
-                  <p className="text-xs text-[#777777]">{customer.name} ({customerOrders.length} total orders)</p>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-sm sm:text-base text-[#202020] dark:text-white truncate">Customer Orders</h3>
+                  <p className="text-xs text-[#777777] truncate">{customer.name} ({customerOrders.length} total orders)</p>
                 </div>
               </div>
 
               <button
-                onClick={() => setActivePopup(null)}
-                className="p-2 rounded-xl hover:bg-[#EEEEEE] dark:hover:bg-[#282828] text-[#777777]"
+                onClick={() => setActivePopup(selectedOrderDetailId ? 'order-detail' : null)}
+                className="p-1.5 sm:p-2 rounded-xl hover:bg-[#EEEEEE] dark:hover:bg-[#282828] text-[#777777] cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Orders List Body */}
-            <div className="p-6 overflow-y-auto space-y-3 flex-1">
+            <div className="p-3.5 sm:p-6 overflow-y-auto space-y-3 flex-1">
               {customerOrders.length > 0 ? (
                 customerOrders.map(order => (
                   <div
                     key={order.id}
                     onClick={() => handleOpenOrderDetail(order.id)}
-                    className="p-4 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] hover:border-[#202020] transition-smooth cursor-pointer space-y-2.5"
+                    className="p-3.5 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] hover:border-[#202020] transition-smooth cursor-pointer space-y-2.5"
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#E3E3E3] dark:border-[#333333] pb-2">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-sm text-[#202020] dark:text-white">{order.id}</span>
                         <span className="text-xs text-[#777777]">• Date: {order.date}</span>
                         {order.dueDate && <span className="text-xs text-[#777777]">• Delivery: {order.dueDate}</span>}
@@ -971,7 +973,7 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
                       {(order.services || []).map(s => s.name).join(', ')}
                     </div>
 
-                    <div className="flex items-center justify-between text-xs pt-1">
+                    <div className="flex flex-wrap items-center justify-between text-xs pt-1 gap-2">
                       <span>Total: <strong className="text-[#202020] dark:text-white">₹{order.total}</strong></span>
                       <span>Paid: <strong className="text-emerald-600">₹{order.advancePaid}</strong></span>
                       {(() => {
@@ -1020,24 +1022,24 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
         >
               
               {/* Header */}
-              <div className="p-5 border-b border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between bg-[#F5F5F5]/60 dark:bg-[#252525]/60">
-                <div className="flex items-center gap-3">
+              <div className="p-3.5 sm:p-5 border-b border-[#E3E3E3] dark:border-[#333333] flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#F5F5F5]/60 dark:bg-[#252525]/60 shrink-0">
+                <div className="flex items-center gap-2.5">
                   <button
                     onClick={() => setActivePopup('orders')}
-                    className="p-1.5 rounded-lg text-[#777777] hover:bg-[#EEEEEE] dark:hover:bg-[#282828]"
+                    className="p-1.5 rounded-xl text-[#777777] hover:bg-[#EEEEEE] dark:hover:bg-[#282828] cursor-pointer"
                     title="Back to orders list"
                   >
                     <ArrowLeft className="w-5 h-5" />
                   </button>
-                  <div>
-                    <h3 className="font-bold text-base text-[#202020] dark:text-white flex items-center gap-2">
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-sm sm:text-base text-[#202020] dark:text-white flex items-center gap-2 truncate">
                       Order Details #{selectedOrderDetail.id}
                     </h3>
-                    <p className="text-xs text-[#777777]">Date: {selectedOrderDetail.date} • Delivery: {selectedOrderDetail.dueDate}</p>
+                    <p className="text-[11px] sm:text-xs text-[#777777] truncate">Date: {selectedOrderDetail.date} • Delivery: {selectedOrderDetail.dueDate}</p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap">
                   <button
                     onClick={() => {
                       const orderToEdit = selectedOrderDetail;
@@ -1045,7 +1047,7 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
                       closeCustomerProfile();
                       navigateTo('new-invoice', { orderToEdit });
                     }}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#202020] dark:bg-white text-white dark:text-[#202020] font-bold text-xs hover:opacity-90 transition-smooth cursor-pointer"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#202020] dark:bg-white text-white dark:text-[#202020] font-bold text-xs hover:opacity-90 transition-smooth cursor-pointer"
                   >
                     <Edit3 className="w-3.5 h-3.5 text-emerald-400 dark:text-emerald-600" /> Edit
                   </button>
@@ -1053,35 +1055,35 @@ export const CustomerProfileModal = ({ customer: propCustomer, onClose: propOnCl
                   <button
                     type="button"
                     onClick={() => setWhatsAppModalOrder(selectedOrderDetail)}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-smooth cursor-pointer"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-smooth cursor-pointer"
                   >
-                    <Send className="w-3.5 h-3.5 text-white" /> Share Bill on WhatsApp
+                    <Send className="w-3.5 h-3.5 text-white" /> WhatsApp
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setPrintInvoiceOrder(selectedOrderDetail)}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-[#E3E3E3] dark:border-[#333333] font-semibold text-xs text-[#202020] dark:text-white hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth cursor-pointer"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-[#E3E3E3] dark:border-[#333333] font-semibold text-xs text-[#202020] dark:text-white hover:bg-[#EEEEEE] dark:hover:bg-[#282828] transition-smooth cursor-pointer"
                   >
-                    <Printer className="w-3.5 h-3.5 text-[#202020] dark:text-white" /> Print Invoice
+                    <Printer className="w-3.5 h-3.5 text-[#202020] dark:text-white" /> Print
                   </button>
                   
                   {userRole === 'OWNER' && (
                     <button
                       onClick={() => setOrderToDelete(selectedOrderDetail)}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 font-bold text-xs hover:bg-red-100 cursor-pointer transition-smooth"
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 font-bold text-xs hover:bg-red-100 cursor-pointer transition-smooth"
                       title="Permanently delete order from database"
                     >
-                      <Trash2 className="w-3.5 h-3.5" /> Delete Order
+                      <Trash2 className="w-3.5 h-3.5" /> Delete
                     </button>
                   )}
 
-                  <span className={`px-2.5 py-1 rounded-lg font-bold text-xs border ${getStatusBadgeClass(selectedOrderDetail.status)}`}>
-                    Status: {selectedOrderDetail.status || 'PENDING'}
+                  <span className={`px-2.5 py-1 rounded-xl font-bold text-xs border ${getStatusBadgeClass(selectedOrderDetail.status)}`}>
+                    {selectedOrderDetail.status || 'PENDING'}
                   </span>
                   <button
                     onClick={() => setActivePopup(null)}
-                    className="p-2 rounded-xl hover:bg-[#EEEEEE] dark:hover:bg-[#282828] text-[#777777]"
+                    className="p-1.5 sm:p-2 rounded-xl hover:bg-[#EEEEEE] dark:hover:bg-[#282828] text-[#777777] cursor-pointer ml-auto sm:ml-0"
                   >
                     <X className="w-5 h-5" />
                   </button>

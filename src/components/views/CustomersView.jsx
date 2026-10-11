@@ -6,19 +6,23 @@ import {
   Star,
   Users,
   Check,
-  X
+  X,
+  Trash2
 } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
 import { CustomerModal } from '../modals/CustomerModal';
+import { Modal } from '../common/Modal';
 import { fetchAllOrders } from '../../services/orders';
 
 export const CustomersView = () => {
   const { 
     customers = [], 
     invoices = [],
+    viewParams,
     refetchOrders,
     openCustomerProfile, 
     toggleCustomerFavourite,
+    deleteCustomer,
     userRole = 'OWNER',
     userProfile,
     user,
@@ -88,7 +92,15 @@ export const CustomersView = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterTab, setFilterTab] = useState('all'); // 'all' | 'favourites'
+  const [paymentFilter, setPaymentFilter] = useState('ALL'); // 'ALL' | 'FULLY_PAID' | 'BALANCE_DUE'
   const [showAddCustModal, setShowAddCustModal] = useState(false);
+  const [customerToDelete, setCustomerToDelete] = useState(null);
+
+  useEffect(() => {
+    if (viewParams?.paymentFilter) {
+      setPaymentFilter(viewParams.paymentFilter);
+    }
+  }, [viewParams?.paymentFilter]);
 
   // Active Multi-Worker Assignment Popover State
   const [activeAssignPopoverCustId, setActiveAssignPopoverCustId] = useState(null);
@@ -162,7 +174,7 @@ export const CustomersView = () => {
       const matchSearch = (c.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                           displayPhone.includes(searchTerm);
       if (!matchSearch) return false;
-      if (filterTab === 'favourites') return Boolean(c.is_favourite);
+      if (filterTab === 'favourites' && !c.is_favourite) return false;
 
       // Worker Customer Filtering (Requirement 5): Show ONLY customers assigned to worker
       if (isWorker && !hasWorkerPermission('VIEW_ALL_ORDERS') && !hasWorkerPermission('view_all_orders')) {
@@ -173,6 +185,12 @@ export const CustomersView = () => {
         const isAssignedToCust = custAssignedArray.some(a => a?.workerId === currentWorkerId || a?.workerId === userProfile?.id);
 
         if (!isAssignedToCust) return false;
+      }
+
+      if (paymentFilter !== 'ALL') {
+        const ledger = computeCustomerLedger(c);
+        if ((paymentFilter === 'BALANCE_DUE' || paymentFilter === 'PENDING_BALANCE') && !(ledger.outstandingBalance > 0)) return false;
+        if (paymentFilter === 'FULLY_PAID' && ledger.outstandingBalance !== 0) return false;
       }
 
       return true;
@@ -239,12 +257,12 @@ export const CustomersView = () => {
           />
         </div>
 
-        {/* Filter Tabs */}
-        <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] shrink-0">
+        {/* Filter Tabs & Payment Status Filter */}
+        <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] shrink-0 overflow-x-auto scrollbar-none max-w-full">
           <button
             type="button"
             onClick={() => setFilterTab('all')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-smooth cursor-pointer ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition-smooth cursor-pointer ${
               filterTab === 'all'
                 ? 'bg-white dark:bg-[#1E1E1E] text-[#202020] dark:text-white shadow-xs'
                 : 'text-[#777777] hover:text-[#202020] dark:hover:text-white'
@@ -255,14 +273,50 @@ export const CustomersView = () => {
           <button
             type="button"
             onClick={() => setFilterTab('favourites')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-smooth cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition-smooth cursor-pointer ${
               filterTab === 'favourites'
                 ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/80 dark:text-amber-300 shadow-xs'
                 : 'text-[#777777] hover:text-[#202020] dark:hover:text-white'
             }`}
           >
             <Star className={`w-3.5 h-3.5 ${filterTab === 'favourites' ? 'fill-amber-400 text-amber-500' : ''}`} />
-            Favourites Only ({favouriteCount})
+            Favourites ({favouriteCount})
+          </button>
+
+          <div className="h-4 w-px bg-[#E3E3E3] dark:bg-[#333333] mx-1 shrink-0" />
+
+          <button
+            type="button"
+            onClick={() => setPaymentFilter('ALL')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition-smooth cursor-pointer ${
+              paymentFilter === 'ALL'
+                ? 'bg-white dark:bg-[#1E1E1E] text-[#202020] dark:text-white shadow-xs'
+                : 'text-[#777777] hover:text-[#202020] dark:hover:text-white'
+            }`}
+          >
+            All Payments
+          </button>
+          <button
+            type="button"
+            onClick={() => setPaymentFilter('FULLY_PAID')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition-smooth cursor-pointer ${
+              paymentFilter === 'FULLY_PAID'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-[#777777] hover:text-[#202020] dark:hover:text-white'
+            }`}
+          >
+            Fully Paid
+          </button>
+          <button
+            type="button"
+            onClick={() => setPaymentFilter('BALANCE_DUE')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition-smooth cursor-pointer ${
+              paymentFilter === 'BALANCE_DUE'
+                ? 'bg-red-600 text-white shadow-xs'
+                : 'text-[#777777] hover:text-[#202020] dark:hover:text-white'
+            }`}
+          >
+            Balance Due
           </button>
         </div>
       </div>
@@ -432,17 +486,26 @@ export const CustomersView = () => {
                         );
                       })()}
                       <td className="py-3.5 px-4 text-[#777777] font-medium">{cust.lastOrder || 'N/A'}</td>
-                      <td className="py-3.5 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openCustomerProfile(cust.id);
-                          }}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-[#777777] group-hover:text-[#202020] dark:group-hover:text-white hover:underline cursor-pointer"
-                        >
-                          View Profile <ChevronRight className="w-4 h-4" />
-                        </button>
+                      <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openCustomerProfile(cust.id)}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-[#777777] group-hover:text-[#202020] dark:group-hover:text-white hover:underline cursor-pointer"
+                          >
+                            View Profile <ChevronRight className="w-4 h-4" />
+                          </button>
+                          {userRole === 'OWNER' && (
+                            <button
+                              type="button"
+                              onClick={() => setCustomerToDelete(cust)}
+                              className="p-1 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer ml-1"
+                              title={`Permanently delete customer ${cust.name}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -458,6 +521,61 @@ export const CustomersView = () => {
           onClose={() => setShowAddCustModal(false)}
           onCustomerCreated={(newCust) => openCustomerProfile(newCust.id)}
         />
+      )}
+
+      {/* Delete Customer Confirmation Modal */}
+      {customerToDelete && (
+        <Modal
+          isOpen={true}
+          onClose={() => setCustomerToDelete(null)}
+          size="sm"
+          maxWidthClass="max-w-md"
+          zIndex={10040}
+        >
+          <div className="p-6 space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="p-2.5 rounded-xl bg-red-100 dark:bg-red-950/50">
+                <Trash2 className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-[#202020] dark:text-white">Delete Customer Profile?</h3>
+                <p className="text-xs text-[#777777]">Permanent Database Deletion</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] space-y-1 text-xs font-medium text-[#202020] dark:text-white">
+              <div><strong className="text-[#777777]">Customer:</strong> {customerToDelete.name}</div>
+              <div><strong className="text-[#777777]">Phone:</strong> {customerToDelete.phone || 'N/A'}</div>
+            </div>
+
+            <p className="text-xs text-[#202020] dark:text-gray-300 leading-relaxed">
+              Are you sure you want to permanently delete customer profile <strong className="font-bold text-[#202020] dark:text-white">"{customerToDelete.name}"</strong>? This permanently deletes the customer, their orders, payments, order items, production history, and saved measurements. This action cannot be undone.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E3E3E3] dark:border-[#333333]">
+              <button
+                type="button"
+                onClick={() => setCustomerToDelete(null)}
+                className="px-4 py-2.5 rounded-xl text-xs font-semibold text-[#777777] hover:bg-[#F5F5F5] dark:hover:bg-[#252525] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const targetId = customerToDelete.id;
+                  setCustomerToDelete(null);
+                  if (deleteCustomer) {
+                    await deleteCustomer(targetId);
+                  }
+                }}
+                className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-md cursor-pointer transition-smooth"
+              >
+                Delete Permanently
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
     </div>

@@ -38,6 +38,7 @@ export const RegistersView = () => {
     refetchOrders,
     openCustomerProfile, 
     navigateTo,
+    viewParams,
     userRole,
     userProfile,
     user,
@@ -63,6 +64,12 @@ export const RegistersView = () => {
       }
     }
     loadOrders();
+
+    const handleDataUpdate = () => {
+      loadOrders();
+    };
+    window.addEventListener('shop-data-updated', handleDataUpdate);
+    return () => window.removeEventListener('shop-data-updated', handleDataUpdate);
   }, [currentUserId, currentUserRole]);
 
   // Connect Realtime WebSocket Subscription with OCC & LWW conflict resolution
@@ -71,6 +78,12 @@ export const RegistersView = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [stageFilter, setStageFilter] = useState('All'); 
   const [timeFilter, setTimeFilter] = useState('All'); 
+
+  React.useEffect(() => {
+    if (viewParams?.stageFilter) {
+      setStageFilter(viewParams.stageFilter);
+    }
+  }, [viewParams?.stageFilter]);
   const [selectedSingleDate, setSelectedSingleDate] = useState('');
 
   const [hoveredInvoiceId, setHoveredInvoiceId] = useState(null);
@@ -328,11 +341,44 @@ export const RegistersView = () => {
 
   // Source invoices: use fetched orders array if present, fallback to context invoices
   const sourceInvoices = React.useMemo(() => {
+    // Map context invoices by id/dbId for instant synchronicity with payment updates
+    const invoiceMap = new Map();
+    (invoices || []).forEach(inv => {
+      if (inv.id) invoiceMap.set(String(inv.id), inv);
+      if (inv.dbId) invoiceMap.set(String(inv.dbId), inv);
+    });
+
     if (orders && orders.length > 0) {
       return orders.map(ord => {
+        const ordId = String(ord.invoice_number || ord.id || '');
+        const ordDbId = String(ord.id || ord.dbId || '');
+        const contextInv = invoiceMap.get(ordId) || invoiceMap.get(ordDbId);
+
+        const totVal = parseFloat(contextInv?.total || ord.total_amount || ord.total || 0);
+        const paidVal = parseFloat(contextInv?.advancePaid || ord.total_paid || ord.advancePaid || 0);
+        const balVal = parseFloat(contextInv?.balance !== undefined ? contextInv.balance : (ord.balance_amount !== undefined ? ord.balance_amount : ord.balance)) || 0;
+        const isDeliveredOrSettled = (contextInv?.status || ord.status || '').toUpperCase() === 'DELIVERED' || (totVal > 0 && balVal <= 0 && paidVal >= totVal);
+
         if (ord.dbId || (ord.services && ord.customerName)) {
+          if (isDeliveredOrSettled) {
+            return {
+              ...ord,
+              balance: 0,
+              balance_amount: 0,
+              advancePaid: Math.max(totVal, paidVal),
+              status: 'DELIVERED',
+              overall_status: 'DELIVERED',
+              workflow_status: 'DELIVERED',
+              services: (ord.services || []).map(s => ({
+                ...s,
+                status: s.status === 'CANCELLED' ? 'CANCELLED' : 'DELIVERED',
+                task_status: s.status === 'CANCELLED' ? 'CANCELLED' : 'DELIVERED'
+              }))
+            };
+          }
           return ord;
         }
+
         const lineItems = (ord.order_items || []).map(item => ({
           id: item.id,
           serviceId: item.service_id,
@@ -340,7 +386,7 @@ export const RegistersView = () => {
           rate: parseFloat(item.unit_price) || 0,
           qty: item.quantity || 1,
           amount: parseFloat(item.line_total) || 0,
-          status: item.status || 'PENDING'
+          status: isDeliveredOrSettled ? (item.status === 'CANCELLED' ? 'CANCELLED' : 'DELIVERED') : (item.status || 'PENDING')
         }));
 
         return {
@@ -355,10 +401,12 @@ export const RegistersView = () => {
           subtotal: parseFloat(ord.subtotal) || 0,
           discount: parseFloat(ord.discount) || 0,
           discount_type: ord.discount_type || 'amount',
-          total: parseFloat(ord.total_amount || ord.total) || 0,
-          advancePaid: parseFloat(ord.total_paid || ord.advancePaid) || 0,
-          balance: parseFloat(ord.balance_amount || ord.balance) || 0,
-          status: ord.status || 'PENDING',
+          total: totVal,
+          advancePaid: isDeliveredOrSettled ? Math.max(totVal, paidVal) : paidVal,
+          balance: isDeliveredOrSettled ? 0 : balVal,
+          status: isDeliveredOrSettled ? 'DELIVERED' : (ord.status || 'PENDING'),
+          overall_status: isDeliveredOrSettled ? 'DELIVERED' : (ord.overall_status || ord.status || 'PENDING'),
+          workflow_status: isDeliveredOrSettled ? 'DELIVERED' : (ord.workflow_status || ord.overall_status || ord.status || 'PENDING'),
           notes: ord.notes || '',
           measurements: ord.measurement_snapshot || {},
           services: lineItems,

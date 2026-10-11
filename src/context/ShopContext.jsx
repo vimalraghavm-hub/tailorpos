@@ -16,6 +16,7 @@ import { googleSheetsService } from '../services/googleSheets';
 import { workersService, DEFAULT_WORKER_PERMISSIONS } from '../services/workers';
 import { measurementTemplatesService } from '../services/measurementTemplates';
 import { measurementsService } from '../services/measurements';
+import { getKolkataDateStr, calculatePeriodFinancials } from '../utils/dateUtils';
 
 const ShopContext = createContext();
 
@@ -33,6 +34,7 @@ export const ShopProvider = ({ children }) => {
   const [isHydrated, setIsHydrated] = useState(!isSupabaseConfigured);
   const [customers, setCustomers] = useState(() => isSupabaseConfigured ? [] : initialCustomers);
   const [invoices, setInvoices] = useState(() => isSupabaseConfigured ? [] : initialInvoices);
+  const [allInvoices, setAllInvoices] = useState(() => isSupabaseConfigured ? [] : initialInvoices);
   const [services, setServices] = useState(defaultServicesList);
   const [settings, setSettings] = useState(defaultShopSettings);
   const [notifications, setNotifications] = useState(defaultNotifications);
@@ -80,6 +82,7 @@ export const ShopProvider = ({ children }) => {
   };
 
   const [currentView, setCurrentView] = useState(getInitialRoute);
+  const [viewParams, setViewParams] = useState({});
   const [selectedInvoiceId, setSelectedInvoiceId] = useState('INV-1027');
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
   const [activeProfileCustomerId, setActiveProfileCustomerId] = useState(null);
@@ -266,20 +269,32 @@ export const ShopProvider = ({ children }) => {
   const loadShopData = useCallback(async () => {
     if (!isSupabaseConfigured) return;
     try {
-      const activeUser = userProfile || user;
-      const [dbTemplates, dbCustomers, dbOrders, dbServices, dbStatuses] = await Promise.all([
+      const [dbTemplates, dbCustomers, dbOrders, dbServices, dbStatuses, dbPayments] = await Promise.all([
         measurementTemplatesService.getMeasurementTemplates(shopId),
         customersService.getCustomers(shopId),
-        ordersService.getOrders(shopId, activeUser),
+        ordersService.getOrders(shopId),
         catalogServicesService.getServices(shopId),
-        productionService.getProductionStatuses(shopId)
+        productionService.getProductionStatuses(shopId),
+        paymentsService.getAllPayments(shopId)
       ]);
+
+      if (dbPayments !== null && Array.isArray(dbPayments)) {
+        setPayments(dbPayments);
+      }
 
       if (dbTemplates !== null && Array.isArray(dbTemplates)) {
         setMeasurementTemplates(dbTemplates);
       }
 
+      let activeCustIdSet = new Set();
+      let activeCustPhoneSet = new Set();
+      if (dbCustomers !== null && Array.isArray(dbCustomers)) {
+        activeCustIdSet = new Set(dbCustomers.map(c => String(c.id)));
+        activeCustPhoneSet = new Set(dbCustomers.map(c => c.phone ? normalizePhone(c.phone) : '').filter(Boolean));
+      }
+
       let formattedInvoices = [];
+      let activeInvoices = [];
       if (dbOrders !== null) {
         let maxInvoiceNum = 1000;
         formattedInvoices = dbOrders.map(ord => {
@@ -292,6 +307,13 @@ export const ShopProvider = ({ children }) => {
             }
           }
 
+          const rawTotal = parseFloat(ord.total_amount) || 0;
+          const rawPaid = parseFloat(ord.total_paid) || 0;
+          const rawBal = parseFloat(ord.balance_amount) || 0;
+          const isSettled = ((rawBal <= 0 || Math.abs(rawBal) < 0.01) && (rawPaid > 0 || (rawTotal > 0 && rawPaid >= rawTotal))) || (ord.status || '').toUpperCase() === 'DELIVERED';
+          const effectiveStatus = isSettled ? 'DELIVERED' : (ord.status || 'PENDING');
+          const effectiveOverallStatus = isSettled ? 'DELIVERED' : (ord.overall_status || ord.status || 'PENDING');
+
           const lineItems = (ord.order_items || []).map(item => ({
             id: item.id,
             serviceId: item.service_id,
@@ -299,7 +321,7 @@ export const ShopProvider = ({ children }) => {
             rate: parseFloat(item.unit_price) || 0,
             qty: item.quantity || 1,
             amount: parseFloat(item.line_total) || 0,
-            status: item.status || 'PENDING'
+            status: isSettled ? (item.status === 'CANCELLED' ? 'CANCELLED' : 'DELIVERED') : (item.status || 'PENDING')
           }));
 
           return {
@@ -314,11 +336,13 @@ export const ShopProvider = ({ children }) => {
             subtotal: parseFloat(ord.subtotal) || 0,
             discount: parseFloat(ord.discount) || 0,
             discount_type: ord.discount_type || 'amount',
-            total: parseFloat(ord.total_amount) || 0,
-            advancePaid: parseFloat(ord.total_paid) || 0,
-            balance: parseFloat(ord.balance_amount) || 0,
-            extraPaid: Math.max(0, (parseFloat(ord.total_paid) || 0) - (parseFloat(ord.total_amount) || 0)),
-            status: ord.status || 'PENDING',
+            total: rawTotal,
+            advancePaid: isSettled ? Math.max(rawTotal, rawPaid) : rawPaid,
+            balance: isSettled ? 0 : rawBal,
+            extraPaid: Math.max(0, rawPaid - rawTotal),
+            status: effectiveStatus,
+            overall_status: effectiveOverallStatus,
+            workflow_status: effectiveOverallStatus,
             notes: ord.notes || '',
             measurements: ord.measurement_snapshot || {},
             services: lineItems,
@@ -326,11 +350,30 @@ export const ShopProvider = ({ children }) => {
             archived_in_register: Boolean(ord.archived_in_register)
           };
         });
-        setInvoices(formattedInvoices);
+
+        activeInvoices = formattedInvoices.filter(inv => {
+          if (inv.customerId && activeCustIdSet.has(String(inv.customerId))) return true;
+          if (inv.phone && activeCustPhoneSet.has(normalizePhone(inv.phone))) return true;
+          return false;
+        });
+
+        setAllInvoices(formattedInvoices);
+        setInvoices(activeInvoices);
         setSettings(prev => ({ ...prev, nextInvoiceNumber: maxInvoiceNum + 1 }));
-        if (formattedInvoices.length > 0) {
+        if (activeInvoices.length > 0) {
+          setSelectedInvoiceId(activeInvoices[0].id);
+        } else if (formattedInvoices.length > 0) {
           setSelectedInvoiceId(formattedInvoices[0].id);
         }
+      }
+
+      if (dbPayments !== null && Array.isArray(dbPayments)) {
+        const activeOrderDbIds = new Set(activeInvoices.map(inv => String(inv.dbId || inv.id)));
+        const activePayments = dbPayments.filter(p => 
+          (p.customer_id && activeCustIdSet.has(String(p.customer_id))) ||
+          (p.order_id && activeOrderDbIds.has(String(p.order_id)))
+        );
+        setPayments(activePayments);
       }
 
       if (dbCustomers !== null) {
@@ -351,7 +394,7 @@ export const ShopProvider = ({ children }) => {
             });
           }
 
-          const custInvoices = formattedInvoices.filter(inv => inv.customerId === c.id || (inv.phone && c.phone && isPhoneMatch(c.phone, inv.phone)));
+          const custInvoices = activeInvoices.filter(inv => inv.customerId === c.id || (inv.phone && c.phone && isPhoneMatch(c.phone, inv.phone)));
           const totalOrders = custInvoices.length;
           const totalSpent = custInvoices.reduce((sum, inv) => sum + (inv.total || 0), 0);
           const outstanding = custInvoices.reduce((sum, inv) => sum + (inv.balance || 0), 0);
@@ -487,6 +530,7 @@ export const ShopProvider = ({ children }) => {
 
   const [expenses, setExpenses] = useState([]);
   const [expenseCategories, setExpenseCategories] = useState([]);
+  const [payments, setPayments] = useState([]);
 
   const loadAnalytics = async (period = 'Week') => {
     if (!isSupabaseConfigured) return;
@@ -548,6 +592,9 @@ export const ShopProvider = ({ children }) => {
         showToast("Expense Recorded", `₹${expenseData.amount} logged under expenses`, "success");
         await loadExpenses();
         await loadAnalytics();
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('shop-data-updated'));
+        }
         return { success: true, data: res.data };
       } else {
         showToast("Expense Error", res.error || "Failed to record expense", "error");
@@ -564,6 +611,9 @@ export const ShopProvider = ({ children }) => {
     };
     setExpenses(prev => [newExp, ...prev]);
     showToast("Expense Recorded", `₹${newExp.amount} logged under expenses`, "success");
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('shop-data-updated'));
+    }
     return { success: true, data: newExp };
   };
 
@@ -579,6 +629,9 @@ export const ShopProvider = ({ children }) => {
         showToast("Expense Updated", "Expense record updated successfully", "success");
         await loadExpenses();
         await loadAnalytics();
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('shop-data-updated'));
+        }
         return { success: true };
       } else {
         showToast("Expense Error", res.error || "Failed to update expense", "error");
@@ -588,6 +641,9 @@ export const ShopProvider = ({ children }) => {
 
     setExpenses(prev => prev.map(e => e.id === expenseId ? { ...e, ...expenseData } : e));
     showToast("Expense Updated", "Expense record updated successfully", "success");
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('shop-data-updated'));
+    }
     return { success: true };
   };
 
@@ -603,6 +659,9 @@ export const ShopProvider = ({ children }) => {
         showToast("Expense Removed", "Removed expense entry", "info");
         await loadExpenses();
         await loadAnalytics();
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('shop-data-updated'));
+        }
         return { success: true };
       } else {
         showToast("Expense Error", res.error || "Failed to remove expense", "error");
@@ -612,6 +671,9 @@ export const ShopProvider = ({ children }) => {
 
     setExpenses(prev => prev.filter(e => e.id !== expenseId));
     showToast("Expense Removed", "Removed expense entry", "info");
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('shop-data-updated'));
+    }
     return { success: true };
   };
 
@@ -637,6 +699,35 @@ export const ShopProvider = ({ children }) => {
     setExpenseCategories(prev => [...prev, newCat]);
     showToast("Category Added", `Expense category '${name}' created`, "success");
     return { success: true, data: newCat };
+  };
+
+  const updateExpenseCategory = async (categoryId, name) => {
+    if (!hasPermission('MANAGE_EXPENSES')) {
+      showToast("Access Denied", "Only Owner accounts can manage expense categories.", "warning");
+      return { success: false };
+    }
+
+    const cleanName = (name || '').trim();
+    if (!cleanName) {
+      showToast("Category Error", "Category name cannot be empty", "warning");
+      return { success: false };
+    }
+
+    if (isSupabaseConfigured) {
+      const res = await expensesService.updateExpenseCategory(categoryId, cleanName);
+      if (res.success) {
+        showToast("Category Updated", `Expense category renamed to '${cleanName}'`, "success");
+        await loadExpenses();
+        return { success: true, data: res.data };
+      } else {
+        showToast("Category Error", res.error || "Failed to update category", "error");
+        return { success: false, error: res.error };
+      }
+    }
+
+    setExpenseCategories(prev => prev.map(c => c.id === categoryId ? { ...c, name: cleanName } : c));
+    showToast("Category Updated", `Expense category renamed to '${cleanName}'`, "success");
+    return { success: true };
   };
 
   const deactivateExpenseCategory = async (categoryId) => {
@@ -785,6 +876,7 @@ export const ShopProvider = ({ children }) => {
     }
 
     setCurrentView(view);
+    setViewParams(params || {});
     if (typeof window !== 'undefined') {
       const urlPath = view === 'new-invoice' ? '/invoice' : '/' + view;
       window.history.pushState({}, '', urlPath);
@@ -1119,11 +1211,11 @@ export const ShopProvider = ({ children }) => {
     }
 
     // 2. Update local state upon successful backend delivery
-    setInvoices(prev => prev.map(inv => {
+    const updateDeliveredList = prev => prev.map(inv => {
       const isMatch = inv.id === invoiceNum || inv.id === invoiceId || (targetId && inv.dbId === targetId) || (inv.invoice_number && String(inv.invoice_number) === String(invoiceId));
       if (!isMatch) return inv;
 
-      const updatedServices = inv.services ? inv.services.map(s => ({ ...s, status: 'DELIVERED', task_status: 'DELIVERED' })) : [];
+      const updatedServices = inv.services ? inv.services.map(s => ({ ...s, status: s.status === 'CANCELLED' ? 'CANCELLED' : 'DELIVERED', task_status: s.status === 'CANCELLED' ? 'CANCELLED' : 'DELIVERED' })) : [];
 
       return {
         ...inv,
@@ -1139,7 +1231,10 @@ export const ShopProvider = ({ children }) => {
         paymentMode: addPayment > 0 ? (paymentMode || inv.paymentMode) : inv.paymentMode,
         services: updatedServices
       };
-    }));
+    });
+
+    setInvoices(updateDeliveredList);
+    setAllInvoices(updateDeliveredList);
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('shop-data-updated'));
@@ -1401,24 +1496,41 @@ export const ShopProvider = ({ children }) => {
   };
 
   const deleteCustomer = async (customerId) => {
-    if (!customerId) return;
-    if (!hasPermission('DELETE_CUSTOMER')) {
-      showToast("Access Denied", "Only Owner can delete customer profiles.", "warning");
-      return;
+    if (!customerId) return { success: false, error: 'Customer ID required' };
+
+    if (userRole !== 'OWNER' && !hasPermission('DELETE_CUSTOMER')) {
+      showToast("Access Denied", "Only SHOP OWNER can delete customer profiles.", "error");
+      return { success: false, error: "Unauthorized" };
     }
 
     const target = (customers || []).find(c => c && c.id === customerId);
     const custName = target ? target.name : 'Customer';
 
     setCustomers(prev => prev.filter(c => c && c.id !== customerId));
-    if (activeProfileCustomerId === customerId) {
-      setActiveProfileCustomerId(null);
-    }
+    setInvoices(prev => prev.filter(inv => inv.customerId !== customerId && inv.customer_id !== customerId));
+    setAllInvoices(prev => prev.filter(inv => inv.customerId !== customerId && inv.customer_id !== customerId));
+
+    if (selectedCustomerId === customerId) setSelectedCustomerId(null);
+    if (activeProfileCustomerId === customerId) setActiveProfileCustomerId(null);
 
     if (isSupabaseConfigured) {
-      await customersService.softDeleteCustomer(customerId);
+      const res = await customersService.deleteCustomerPermanent(customerId);
+      if (res && res.success === false) {
+        showToast("Delete Failed", res.error || "Failed to delete customer", "error");
+        await loadShopData();
+        return res;
+      }
     }
-    showToast("Customer Profile Deleted", `Permanently removed profile for ${custName}`, "info");
+
+    await loadShopData();
+    await loadAnalytics();
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('shop-data-updated'));
+    }
+
+    showToast("Customer Deleted", `Permanently removed profile for ${custName}`, "info");
+    return { success: true };
   };
 
   const saveInvoice = async (invoiceData) => {
@@ -1638,7 +1750,7 @@ export const ShopProvider = ({ children }) => {
   }, [loadShopData]);
 
   const recordPayment = async (invoiceId, amount, mode) => {
-    const targetInv = invoices.find(inv => inv.id === invoiceId || inv.dbId === invoiceId);
+    const targetInv = invoices.find(inv => inv.id === invoiceId || inv.dbId === invoiceId) || allInvoices.find(inv => inv.id === invoiceId || inv.dbId === invoiceId);
     const targetDbId = targetInv?.dbId || invoiceId;
     const customerId = targetInv?.customerId || targetInv?.customer_id;
 
@@ -1665,14 +1777,14 @@ export const ShopProvider = ({ children }) => {
       updateCustomerBalance(customerId);
     }
 
-    setInvoices(prev => prev.map(inv => {
+    const updatePaymentList = prev => prev.map(inv => {
       const isMatch = inv.id === invoiceId || inv.dbId === invoiceId || (targetDbId && inv.dbId === targetDbId) || (inv.invoice_number && String(inv.invoice_number) === String(invoiceId));
       if (!isMatch) return inv;
 
       const totalVal = parseFloat(inv.total || inv.total_amount || 0);
       const newAdvance = (parseFloat(inv.advancePaid || inv.total_paid || 0)) + amount;
       const newBalance = Math.max(0, totalVal - newAdvance);
-      const isPaid = newBalance === 0;
+      const isPaid = newBalance <= 0 || Math.abs(newBalance) < 0.01;
       const pStatus = isPaid ? 'PAID' : (newAdvance > 0 ? 'PARTIALLY PAID' : 'UNPAID');
 
       return {
@@ -1682,16 +1794,24 @@ export const ShopProvider = ({ children }) => {
         advance_paid: newAdvance,
         paid_amount: newAdvance,
         amount_paid: newAdvance,
-        balance: newBalance,
-        balance_amount: newBalance,
-        pending_amount: newBalance,
-        balance_due: newBalance,
+        balance: isPaid ? 0 : newBalance,
+        balance_amount: isPaid ? 0 : newBalance,
+        pending_amount: isPaid ? 0 : newBalance,
+        balance_due: isPaid ? 0 : newBalance,
         paymentStatus: pStatus,
         payment_status: pStatus,
-        status: isPaid && inv.status !== 'DELIVERED' ? 'PAID' : inv.status,
+        status: isPaid ? 'DELIVERED' : inv.status,
+        overall_status: isPaid ? 'DELIVERED' : (inv.overall_status || inv.status),
+        workflow_status: isPaid ? 'DELIVERED' : (inv.workflow_status || inv.overall_status || inv.status),
+        services: isPaid && Array.isArray(inv.services)
+          ? inv.services.map(s => ({ ...s, status: s.status === 'CANCELLED' ? 'CANCELLED' : 'DELIVERED', task_status: s.status === 'CANCELLED' ? 'CANCELLED' : 'DELIVERED' }))
+          : inv.services,
         paymentMode: mode || inv.paymentMode
       };
-    }));
+    });
+
+    setInvoices(updatePaymentList);
+    setAllInvoices(updatePaymentList);
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('shop-data-updated'));
@@ -1702,11 +1822,11 @@ export const ShopProvider = ({ children }) => {
   };
 
   const settlePayment = async (orderId) => {
-    const targetInv = invoices.find(inv => inv.id === orderId || inv.dbId === orderId);
+    const targetInv = invoices.find(inv => inv.id === orderId || inv.dbId === orderId) || allInvoices.find(inv => inv.id === orderId || inv.dbId === orderId);
     const targetDbId = targetInv?.dbId || orderId;
     const customerId = targetInv?.customerId || targetInv?.customer_id;
 
-    setInvoices(prev => prev.map(inv => {
+    const updateSettledList = prev => prev.map(inv => {
       const isMatch = inv.id === orderId || inv.dbId === orderId || (targetDbId && inv.dbId === targetDbId) || (inv.invoice_number && String(inv.invoice_number) === String(orderId));
       if (!isMatch) return inv;
       const totalVal = parseFloat(inv.total || inv.total_amount || 0);
@@ -1724,9 +1844,17 @@ export const ShopProvider = ({ children }) => {
         balance_due: 0,
         paymentStatus: 'PAID',
         payment_status: 'PAID',
-        status: inv.status === 'DELIVERED' ? 'DELIVERED' : (inv.status || 'PAID')
+        status: 'DELIVERED',
+        overall_status: 'DELIVERED',
+        workflow_status: 'DELIVERED',
+        services: Array.isArray(inv.services)
+          ? inv.services.map(s => ({ ...s, status: s.status === 'CANCELLED' ? 'CANCELLED' : 'DELIVERED', task_status: s.status === 'CANCELLED' ? 'CANCELLED' : 'DELIVERED' }))
+          : inv.services
       };
-    }));
+    });
+
+    setInvoices(updateSettledList);
+    setAllInvoices(updateSettledList);
 
     if (isSupabaseConfigured && targetDbId) {
       try {
@@ -1760,13 +1888,14 @@ export const ShopProvider = ({ children }) => {
   const deleteOrder = async (orderId) => {
     if (!orderId) return { success: false };
 
-    const targetInv = invoices.find(inv => inv.id === orderId || inv.dbId === orderId);
+    const targetInv = invoices.find(inv => inv.id === orderId || inv.dbId === orderId) || allInvoices.find(inv => inv.id === orderId || inv.dbId === orderId);
     const targetDbId = targetInv?.dbId || orderId;
     const customerId = targetInv?.customerId;
 
-    // Filter out deleted order from invoices state
+    // Filter out deleted order from invoices and allInvoices state
     const remainingInvoices = invoices.filter(inv => inv.id !== orderId && (targetDbId ? inv.dbId !== targetDbId : true));
     setInvoices(remainingInvoices);
+    setAllInvoices(prev => prev.filter(inv => inv.id !== orderId && (targetDbId ? inv.dbId !== targetDbId : true)));
 
     // Dynamic Measurement Fallback Rule on Order Deletion (Requirements 10-15 & 38)
     if (customerId) {
@@ -1826,6 +1955,13 @@ export const ShopProvider = ({ children }) => {
     // Call Supabase DB Delete
     if (isSupabaseConfigured && targetDbId) {
       await ordersService.deleteOrder(shopId, targetDbId);
+    }
+
+    await loadShopData();
+    await loadAnalytics();
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('shop-data-updated'));
     }
 
     showToast("Order Deleted", `Successfully removed order ${targetInv?.id || orderId}`, "info");
@@ -1949,40 +2085,53 @@ export const ShopProvider = ({ children }) => {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
   };
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayKolkataStr = getKolkataDateStr(new Date());
 
-  const computedTodayRevenue = invoices.reduce((sum, inv) => {
-    const isToday = (inv.date && inv.date.startsWith(todayStr)) || (inv.created_at && inv.created_at.startsWith(todayStr));
-    if (isToday) {
-      return sum + (parseFloat(inv.advancePaid) || 0);
-    }
-    if ((inv.status || '').toUpperCase() === 'DELIVERED' && (parseFloat(inv.advancePaid) || 0) > 0) {
-      return sum + (parseFloat(inv.advancePaid) || 0);
-    }
-    return sum;
-  }, 0);
+  // Unified financial calculations for today (Asia/Kolkata)
+  const todayFinancials = calculatePeriodFinancials(payments, expenses, 'TODAY');
 
-  const todayRevVal = analyticsData.summary?.today_revenue ?? computedTodayRevenue;
-  const todayExpVal = analyticsData.summary?.today_expenses ?? (expenses || [])
-    .filter(e => e.expense_date && e.expense_date.startsWith(todayStr))
-    .reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+  const todayRevVal = (payments && payments.length > 0)
+    ? todayFinancials.totalRevenue
+    : ((analyticsData.summary?.today_revenue !== undefined && analyticsData.summary?.today_revenue !== null)
+        ? (parseFloat(analyticsData.summary.today_revenue) || 0)
+        : todayFinancials.totalRevenue);
+
+  const todayExpVal = (expenses && expenses.length > 0)
+    ? todayFinancials.totalExpenses
+    : ((analyticsData.summary?.today_expenses !== undefined && analyticsData.summary?.today_expenses !== null)
+        ? (parseFloat(analyticsData.summary.today_expenses) || 0)
+        : todayFinancials.totalExpenses);
+
+  const estimatedNetProfit = todayRevVal - todayExpVal;
+
+  const computedTotalOutstanding = (invoices || [])
+    .filter(i => (i.status || '').toUpperCase() !== 'CANCELLED')
+    .reduce((acc, curr) => acc + (parseFloat(curr.balance) || 0), 0);
 
   const stats = {
     todayRevenue: todayRevVal,
-    todaySales: analyticsData.summary?.today_sales ?? invoices.filter(i => (i.date && i.date.startsWith(todayStr)) || (i.created_at && i.created_at.startsWith(todayStr))).reduce((acc, curr) => acc + (parseFloat(curr.total) || 0), 0),
-    todayOrders: analyticsData.summary?.today_orders ?? invoices.filter(i => (i.date && i.date.startsWith(todayStr)) || (i.created_at && i.created_at.startsWith(todayStr))).length,
-    totalInvoices: analyticsData.summary?.total_invoices ?? invoices.length,
-    pendingOrders: analyticsData.summary?.pending_orders ?? invoices.filter(i => (i.status || '').toUpperCase() !== 'DELIVERED').length,
-    readyForDelivery: analyticsData.summary?.ready_orders ?? invoices.filter(i => (i.status || '').toUpperCase() === 'READY').length,
-    totalOutstanding: analyticsData.summary?.total_outstanding ?? invoices.reduce((acc, curr) => acc + (parseFloat(curr.balance) || 0), 0),
+    todaySales: (invoices || []).filter(i => {
+      const iDate = getKolkataDateStr(i.date || i.created_at);
+      return iDate === todayKolkataStr;
+    }).reduce((acc, curr) => acc + (parseFloat(curr.total) || 0), 0),
+    todayOrders: (invoices || []).filter(i => {
+      const iDate = getKolkataDateStr(i.date || i.created_at);
+      return iDate === todayKolkataStr;
+    }).length,
+    totalInvoices: invoices.length,
+    pendingOrders: invoices.filter(i => (i.status || '').toUpperCase() !== 'DELIVERED' && (i.status || '').toUpperCase() !== 'READY').length,
+    readyForDelivery: invoices.filter(i => (i.status || '').toUpperCase() === 'READY').length,
+    totalOutstanding: computedTotalOutstanding,
     todayExpenses: todayExpVal,
-    estimatedNet: todayRevVal - todayExpVal,
+    estimatedNet: estimatedNetProfit,
     statusCounts: {
-      cutting: invoices.filter(i => (i.status || '').toUpperCase() === 'CUTTING').length,
-      stitching: invoices.filter(i => (i.status || '').toUpperCase() === 'STITCHING').length,
-      packing: invoices.filter(i => (i.status || '').toUpperCase() === 'PACKING').length,
-      ready: invoices.filter(i => (i.status || '').toUpperCase() === 'READY').length,
-      delivered: invoices.filter(i => (i.status || '').toUpperCase() === 'DELIVERED').length
+      pending: invoices.filter(i => (i.status || '').toUpperCase() === 'PENDING' || (i.services && i.services.some(s => (s?.status || '').toUpperCase() === 'PENDING'))).length,
+      cutting: invoices.filter(i => (i.status || '').toUpperCase() === 'CUTTING' || (i.services && i.services.some(s => (s?.status || '').toUpperCase() === 'CUTTING'))).length,
+      stitching: invoices.filter(i => (i.status || '').toUpperCase() === 'STITCHING' || (i.services && i.services.some(s => (s?.status || '').toUpperCase() === 'STITCHING'))).length,
+      fitting: invoices.filter(i => (i.status || '').toUpperCase() === 'FITTING' || (i.services && i.services.some(s => (s?.status || '').toUpperCase() === 'FITTING'))).length,
+      packing: invoices.filter(i => (i.status || '').toUpperCase() === 'PACKING' || (i.services && i.services.some(s => (s?.status || '').toUpperCase() === 'PACKING'))).length,
+      ready: invoices.filter(i => (i.status || '').toUpperCase() === 'READY' || (i.services && i.services.some(s => (s?.status || '').toUpperCase() === 'READY'))).length,
+      delivered: invoices.filter(i => (i.status || '').toUpperCase() === 'DELIVERED' || (i.services && i.services.some(s => (s?.status || '').toUpperCase() === 'DELIVERED'))).length
     }
   };
 
@@ -2341,6 +2490,21 @@ export const ShopProvider = ({ children }) => {
     return res;
   };
 
+  const reorderTemplateFields = async (templateId, fields) => {
+    if (userRole !== 'OWNER') {
+      showToast("Access Denied", "Only SHOP OWNER can reorder measurement fields.", "error");
+      return { success: false, error: "Unauthorized" };
+    }
+    const res = await measurementTemplatesService.reorderTemplateFields(templateId, fields);
+    if (res?.success) {
+      showToast("Field Order Saved", "Measurement field layout saved", "success");
+      await loadShopData();
+    } else {
+      showToast("Reorder Failed", res?.error || "Failed to reorder fields", "error");
+    }
+    return res;
+  };
+
   const garmentMeasurementTypes = (Array.isArray(measurementTemplates) && measurementTemplates.length > 0)
     ? measurementTemplates
         .filter(t => t.is_active !== false)
@@ -2382,6 +2546,7 @@ export const ShopProvider = ({ children }) => {
     isHydrated,
     customers,
     invoices,
+    allInvoices,
     services,
     settings,
     notifications,
@@ -2392,6 +2557,7 @@ export const ShopProvider = ({ children }) => {
     getDynamicDefaultMeasurements,
     saveMeasurementTemplate,
     renameMeasurementTemplate,
+    reorderTemplateFields,
     toggleTemplateActive,
     deactivateTemplateField,
     addTemplateField,
@@ -2414,11 +2580,13 @@ export const ShopProvider = ({ children }) => {
     loadAnalytics,
     expenses,
     expenseCategories,
+    payments,
     loadExpenses,
     addExpense,
     updateExpense,
     deleteExpense,
     addExpenseCategory,
+    updateExpenseCategory,
     deactivateExpenseCategory,
     setUserRole,
     setShowAuthModal,
@@ -2428,11 +2596,13 @@ export const ShopProvider = ({ children }) => {
     setSidebarCollapsed,
     setMobileMenuOpen,
     navigateTo,
+    viewParams,
     setEditingOrder,
     clearEditingOrder,
     addInvoice,
     saveInvoice,
     deleteOrder,
+    deleteCustomer,
     updateServiceStatus,
     addProductionStatus,
     editProductionStatus,
@@ -2454,7 +2624,6 @@ export const ShopProvider = ({ children }) => {
     addCustomer,
     updateCustomer,
     toggleCustomerFavourite,
-    deleteCustomer,
     openCustomerProfile,
     closeCustomerProfile,
     refreshCustomerProfileData,
@@ -2483,7 +2652,7 @@ export const ShopProvider = ({ children }) => {
     hasWorkerPermission,
     dbConnectionError
   }), [
-    isAuthLoading, isHydrated, customers, invoices, services, settings,
+    isAuthLoading, isHydrated, customers, invoices, allInvoices, services, settings,
     notifications, productionStatuses, measurementTemplates, garmentMeasurementTypes,
     garmentMeasurementFields, currentView, selectedInvoiceId, selectedCustomerId,
     activeProfileCustomerId, editingOrder, theme, toasts, sidebarCollapsed,

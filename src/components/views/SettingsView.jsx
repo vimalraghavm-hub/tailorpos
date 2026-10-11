@@ -31,9 +31,13 @@ import {
 } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
 import { WorkflowEditorModal } from '../modals/WorkflowEditorModal';
+import { ExcelImportModal } from '../modals/ExcelImportModal';
 import { messagingService } from '../../services/messaging';
+import { Modal } from '../common/Modal';
 
 export const SettingsView = () => {
+  const [templateToDelete, setTemplateToDelete] = useState(null);
+  const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const { 
     settings, 
     setSettings, 
@@ -51,6 +55,7 @@ export const SettingsView = () => {
     invoices = [],
     expenses,
     expenseCategories,
+    stats,
     addExpense,
     deleteExpense,
     addExpenseCategory,
@@ -64,6 +69,7 @@ export const SettingsView = () => {
     measurementTemplates = [],
     saveMeasurementTemplate,
     renameMeasurementTemplate,
+    reorderTemplateFields,
     toggleTemplateActive,
     deactivateTemplateField,
     addTemplateField,
@@ -103,6 +109,39 @@ export const SettingsView = () => {
     if (res?.success !== false) {
       setNewTemplateName('');
       setShowAddTemplateForm(false);
+    }
+  };
+
+  const handleMoveField = async (tmpl, fieldIndex, direction) => {
+    const fields = [...(tmpl.fields || [])];
+    const targetIndex = fieldIndex + direction;
+    if (targetIndex < 0 || targetIndex >= fields.length) return;
+    const [moved] = fields.splice(fieldIndex, 1);
+    fields.splice(targetIndex, 0, moved);
+    if (reorderTemplateFields) {
+      await reorderTemplateFields(tmpl.id, fields);
+    }
+  };
+
+  const handleDragFieldStart = (e, tmplId, index) => {
+    e.dataTransfer.setData('text/plain', JSON.stringify({ tmplId, index }));
+  };
+
+  const handleDropField = async (e, tmpl, targetIndex) => {
+    e.preventDefault();
+    try {
+      const dataStr = e.dataTransfer.getData('text/plain');
+      if (!dataStr) return;
+      const data = JSON.parse(dataStr);
+      if (data.tmplId !== tmpl.id || data.index === undefined || data.index === targetIndex) return;
+      const fields = [...(tmpl.fields || [])];
+      const [moved] = fields.splice(data.index, 1);
+      fields.splice(targetIndex, 0, moved);
+      if (reorderTemplateFields) {
+        await reorderTemplateFields(tmpl.id, fields);
+      }
+    } catch (err) {
+      console.error('Drag field error:', err);
     }
   };
   const [address, setAddress] = useState(settings.address);
@@ -254,6 +293,76 @@ export const SettingsView = () => {
       showToast("Export Complete", `Saved ${fileName}`, "success");
     } catch (err) {
       console.error("Export error:", err);
+      showToast("Export Failed", err.message || "Failed to generate Excel file", "error");
+    }
+  };
+
+  const handleExportThreeSheetMasterReport = () => {
+    try {
+      showToast("Preparing Master Export", "Generating 3-sheet Excel report...", "info");
+
+      // Sheet 1: Daily Summary
+      const summaryRows = [
+        { Metric: "Report Date", Value: new Date().toISOString().split('T')[0] },
+        { Metric: "Shop Name", Value: settings?.shopName || "Mohit Tailoring POS" },
+        { Metric: "Today's Revenue Collected (₹)", Value: stats?.todayRevenue || 0 },
+        { Metric: "Today's Expenses (₹)", Value: stats?.todayExpenses || 0 },
+        { Metric: "Estimated Net Revenue (₹)", Value: stats?.estimatedNet || 0 },
+        { Metric: "Total Outstanding Balance (₹)", Value: stats?.totalOutstanding || 0 },
+        { Metric: "Total Active Invoices / Orders", Value: stats?.totalInvoices || 0 },
+        { Metric: "Pending Orders (In Production)", Value: stats?.pendingOrders || 0 },
+        { Metric: "Ready for Delivery", Value: stats?.readyForDelivery || 0 }
+      ];
+
+      // Sheet 2: Expenses Log
+      const expRows = (expenses || []).map(e => {
+        const catObj = (expenseCategories || []).find(c => c.id === e.category_id || c.name === e.category_id);
+        const catName = e.expense_categories?.name || catObj?.name || 'General';
+
+        return {
+          'Expense ID': e.id,
+          'Category Name': catName,
+          'Amount (₹)': e.amount || 0,
+          'Payment Method': e.payment_method || 'CASH',
+          'Expense Date': e.expense_date || 'N/A',
+          'Description': e.description || '',
+          'Logged At': e.created_at ? new Date(e.created_at).toLocaleString() : 'N/A'
+        };
+      });
+
+      // Sheet 3: Daily Orders Log
+      const orderRows = (invoices || []).map(inv => {
+        const servicesList = (inv.services || []).map(s => s.name || s.service_name_snapshot).filter(Boolean).join(', ');
+        return {
+          'Invoice #': inv.id,
+          'Customer Name': inv.customerName || 'N/A',
+          'Customer Phone': inv.phone || 'N/A',
+          'Order Date': inv.date || 'N/A',
+          'Due Date': inv.dueDate || 'N/A',
+          'Total Amount (₹)': inv.total || 0,
+          'Advance Paid (₹)': inv.advancePaid || 0,
+          'Balance Amount (₹)': inv.balance || 0,
+          'Payment Status': inv.balance === 0 ? 'PAID' : (inv.advancePaid > 0 ? 'PARTIALLY PAID' : 'UNPAID'),
+          'Delivery Status': inv.status || 'PENDING',
+          'Services Summary': servicesList || 'Custom Stitching',
+          'Notes': inv.notes || ''
+        };
+      });
+
+      const wb = XLSX.utils.book_new();
+      const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+      const wsExpenses = XLSX.utils.json_to_sheet(expRows);
+      const wsOrders = XLSX.utils.json_to_sheet(orderRows);
+
+      XLSX.utils.book_append_sheet(wb, wsSummary, "Daily Summary");
+      XLSX.utils.book_append_sheet(wb, wsExpenses, "Expenses");
+      XLSX.utils.book_append_sheet(wb, wsOrders, "Daily Orders");
+
+      const fileName = `Mohit_Tailoring_Master_Business_Report_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      showToast("Master Export Complete", `Saved ${fileName}`, "success");
+    } catch (err) {
+      console.error("Master export error:", err);
       showToast("Export Failed", err.message || "Failed to generate Excel file", "error");
     }
   };
@@ -459,192 +568,31 @@ export const SettingsView = () => {
           </div>
         </div>
 
+        {/* Section: Import Customers from Excel */}
+        <div className="p-6 rounded-3xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] shadow-xs space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#E3E3E3] dark:border-[#333333]">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-emerald-600 text-white">
+                <FileSpreadsheet className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-[#202020] dark:text-white">Import Customers from Excel / CSV</h3>
+                <p className="text-xs text-[#777777]">Upload customer register (.xlsx, .csv) with names, phone, address, notes & measurements</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsExcelImportOpen(true)}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow-xs hover:bg-emerald-700 transition-smooth cursor-pointer shrink-0"
+            >
+              <FileSpreadsheet className="w-4 h-4" /> Upload & Import Customers
+            </button>
+          </div>
+        </div>
+
         {/* Section 3: WhatsApp Audit Logs temporarily hidden from Settings UI */}
 
-        {/* Section 4: Expense Ledger & Categories */}
-        <div className="p-6 rounded-3xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] shadow-xs space-y-6">
-          <div className="flex items-center gap-3 pb-3 border-b border-[#E3E3E3] dark:border-[#333333]">
-            <div className="p-2 rounded-xl bg-[#202020] text-white">
-              <Receipt className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-bold text-base text-[#202020] dark:text-white">Shop Expenses & Categories</h3>
-              <p className="text-xs text-[#777777]">Log daily operational costs (Rent, Electricity, Fabric, Maintenance) & manage categories</p>
-            </div>
-          </div>
 
-          {/* New Expense Entry Form */}
-          <div className="p-4 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] space-y-3">
-            <h4 className="font-bold text-xs text-[#202020] dark:text-white uppercase tracking-wider">Log New Expense Entry</h4>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-[11px] font-semibold text-[#777777] mb-1">Amount (₹)</label>
-                <input
-                  type="number"
-                  placeholder="e.g. 1500"
-                  value={expAmount}
-                  onChange={(e) => setExpAmount(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] text-xs font-bold text-[#202020] dark:text-white focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-[#777777] mb-1">Expense Date</label>
-                <input
-                  type="date"
-                  value={expDate}
-                  onChange={(e) => setExpDate(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] text-xs font-bold text-[#202020] dark:text-white focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-[#777777] mb-1">Category</label>
-                <select
-                  value={expCategoryId}
-                  onChange={(e) => setExpCategoryId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] text-xs font-bold text-[#202020] dark:text-white focus:outline-none"
-                >
-                  <option value="">General / Uncategorized</option>
-                  {expenseCategories.map(cat => (
-                    <option key={cat.id} value={cat.id}>{cat.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-[#777777] mb-1">Payment Method</label>
-                <select
-                  value={expMethod}
-                  onChange={(e) => setExpMethod(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] text-xs font-bold text-[#202020] dark:text-white focus:outline-none"
-                >
-                  <option value="CASH">CASH</option>
-                  <option value="UPI">UPI</option>
-                  <option value="CARD">CARD</option>
-                  <option value="BANK_TRANSFER">BANK TRANSFER</option>
-                </select>
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="block text-[11px] font-semibold text-[#777777] mb-1">Description / Notes</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="e.g. Electricity bill for September"
-                    value={expDescription}
-                    onChange={(e) => setExpDescription(e.target.value)}
-                    className="flex-1 px-3 py-2 rounded-xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] text-xs font-medium text-[#202020] dark:text-white focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleCreateExpense}
-                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-smooth cursor-pointer"
-                  >
-                    + Log Expense
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Expense Categories Manager */}
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between">
-              <h4 className="font-bold text-xs text-[#202020] dark:text-white flex items-center gap-1.5">
-                <Tag className="w-3.5 h-3.5 text-emerald-600" /> Expense Categories
-              </h4>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="New Category Name (e.g. Packaging, Machine Maintenance)"
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                className="flex-1 px-3 py-2 rounded-xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] text-xs font-bold text-[#202020] dark:text-white focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={handleCreateCategory}
-                className="px-4 py-2 rounded-xl bg-[#202020] dark:bg-white text-white dark:text-[#202020] font-bold text-xs shadow-xs transition-smooth cursor-pointer"
-              >
-                + Add Category
-              </button>
-            </div>
-
-            <div className="flex flex-wrap gap-2 pt-1">
-              {expenseCategories.map(cat => (
-                <span 
-                  key={cat.id} 
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] text-xs font-semibold text-[#202020] dark:text-white"
-                >
-                  {cat.name}
-                  <button
-                    type="button"
-                    onClick={() => deactivateExpenseCategory(cat.id)}
-                    className="text-[#777777] hover:text-red-500 cursor-pointer"
-                    title="Deactivate category"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Expenses Log Table */}
-          <div className="space-y-2 pt-2">
-            <h4 className="font-bold text-xs text-[#202020] dark:text-white">Recent Expense Records</h4>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-[#E3E3E3] dark:border-[#333333] text-[#777777] uppercase text-[10px]">
-                    <th className="py-2.5 px-3">Date</th>
-                    <th className="py-2.5 px-3">Category</th>
-                    <th className="py-2.5 px-3">Description</th>
-                    <th className="py-2.5 px-3">Method</th>
-                    <th className="py-2.5 px-3 text-right">Amount</th>
-                    <th className="py-2.5 px-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#E3E3E3] dark:divide-[#333333]">
-                  {expenses.length > 0 ? (
-                    expenses.slice(0, 10).map((exp) => (
-                      <tr key={exp.id} className="hover:bg-[#F5F5F5] dark:hover:bg-[#252525]">
-                        <td className="py-2.5 px-3 font-medium text-[#202020] dark:text-white">{exp.expense_date}</td>
-                        <td className="py-2.5 px-3 font-semibold text-emerald-600">
-                          {exp.expense_categories?.name || 'General'}
-                        </td>
-                        <td className="py-2.5 px-3 text-[#777777] max-w-xs truncate">{exp.description || '—'}</td>
-                        <td className="py-2.5 px-3 font-medium text-[#777777]">{exp.payment_method}</td>
-                        <td className="py-2.5 px-3 font-bold text-right text-[#202020] dark:text-white">₹{exp.amount}</td>
-                        <td className="py-2.5 px-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => deleteExpense(exp.id)}
-                            className="p-1 text-[#777777] hover:text-red-500 cursor-pointer"
-                            title="Delete expense"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={6} className="py-4 text-center text-xs text-[#777777]">
-                        No expenses logged yet.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-        </div>
 
         {/* Section 5: Service Catalog */}
         <div className="p-6 rounded-3xl bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] shadow-xs space-y-4">
@@ -950,37 +898,60 @@ export const SettingsView = () => {
 
                   {userRole === 'OWNER' && editingTemplateId !== tmpl.id && (
                     <div className="flex items-center gap-2">
-                      {!tmpl.is_system_default && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => toggleTemplateActive(tmpl.id, !tmpl.is_active)}
-                            className={`text-[11px] px-2.5 py-1 rounded-lg font-bold cursor-pointer transition-smooth ${
-                              tmpl.is_active
-                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400'
-                                : 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
-                            }`}
-                          >
-                            {tmpl.is_active ? 'Active' : 'Disabled'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => deleteTemplate(tmpl.id)}
-                            className="p-1 text-[#777777] hover:text-red-500 cursor-pointer"
-                            title="Delete Preset"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => toggleTemplateActive(tmpl.id, !tmpl.is_active)}
+                        className={`text-[11px] px-2.5 py-1 rounded-lg font-bold cursor-pointer transition-smooth ${
+                          tmpl.is_active
+                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400'
+                            : 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                        }`}
+                      >
+                        {tmpl.is_active ? 'Active' : 'Disabled'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTemplateToDelete(tmpl)}
+                        className="p-1 text-[#777777] hover:text-red-500 cursor-pointer"
+                        title={`Delete ${tmpl.name} Preset`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   )}
                 </div>
 
                 <div className="flex flex-wrap gap-1.5 pt-1">
-                  {(tmpl.fields || []).map(f => (
-                    <span key={f.id || f.key} className="px-2 py-1 rounded-lg bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] text-[11px] font-medium text-[#777777] flex items-center gap-1">
-                      {f.label} {f.unit ? `(${f.unit})` : ''}
+                  {(tmpl.fields || []).map((f, idx) => (
+                    <span 
+                      key={f.id || f.key || idx} 
+                      draggable={userRole === 'OWNER'}
+                      onDragStart={(e) => handleDragFieldStart(e, tmpl.id, idx)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => handleDropField(e, tmpl, idx)}
+                      className="px-2 py-1 rounded-lg bg-white dark:bg-[#1E1E1E] border border-[#E3E3E3] dark:border-[#333333] text-[11px] font-medium text-[#777777] flex items-center gap-1 select-none cursor-grab active:cursor-grabbing hover:border-emerald-500/50 transition-colors"
+                    >
+                      {userRole === 'OWNER' && idx > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleMoveField(tmpl, idx, -1)}
+                          className="hover:text-[#202020] dark:hover:text-white text-gray-400 cursor-pointer font-bold px-0.5"
+                          title="Move field left"
+                        >
+                          ‹
+                        </button>
+                      )}
+                      <span>{f.label} {f.unit ? `(${f.unit})` : ''}</span>
+                      {userRole === 'OWNER' && idx < (tmpl.fields || []).length - 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleMoveField(tmpl, idx, 1)}
+                          className="hover:text-[#202020] dark:hover:text-white text-gray-400 cursor-pointer font-bold px-0.5"
+                          title="Move field right"
+                        >
+                          ›
+                        </button>
+                      )}
                       {userRole === 'OWNER' && f.id && (
                         <button
                           type="button"
@@ -1069,7 +1040,23 @@ export const SettingsView = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="p-4 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] flex flex-col justify-between space-y-3">
+            <div>
+              <span className="font-bold text-sm text-[#202020] dark:text-white block">Master Business Report (.xlsx)</span>
+              <p className="text-xs text-[#777777] mt-1">
+                Exports 3-sheet workbook: Daily Summary KPI breakdown + Expenses log + Daily Orders ledger.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleExportThreeSheetMasterReport}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs cursor-pointer transition-smooth"
+            >
+              <FileSpreadsheet className="w-4 h-4" /> Export 3-Sheet Master Report (.xlsx)
+            </button>
+          </div>
+
           <div className="p-4 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] flex flex-col justify-between space-y-3">
             <div>
               <span className="font-bold text-sm text-[#202020] dark:text-white block">Customers & Orders Ledger (.xlsx)</span>
@@ -1111,6 +1098,59 @@ export const SettingsView = () => {
       {showWorkflowModal && (
         <WorkflowEditorModal onClose={() => setShowWorkflowModal(false)} />
       )}
+
+      {/* Delete Measurement Preset Confirmation Modal */}
+      {templateToDelete && (
+        <Modal
+          isOpen={true}
+          onClose={() => setTemplateToDelete(null)}
+          size="sm"
+          maxWidthClass="max-w-md"
+          zIndex={10040}
+        >
+          <div className="p-6 space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="p-2.5 rounded-xl bg-red-100 dark:bg-red-950/50">
+                <Trash2 className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-[#202020] dark:text-white">Delete Preset?</h3>
+                <p className="text-xs text-[#777777]">Measurement Configuration Only</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[#202020] dark:text-gray-300 leading-relaxed">
+              Are you sure you want to delete the measurement preset <strong className="font-bold text-[#202020] dark:text-white">"{templateToDelete.name}"</strong>? This removes the preset configuration only. Existing customer measurements and order snapshots will remain untouched.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E3E3E3] dark:border-[#333333]">
+              <button
+                type="button"
+                onClick={() => setTemplateToDelete(null)}
+                className="px-4 py-2.5 rounded-xl text-xs font-semibold text-[#777777] hover:bg-[#F5F5F5] dark:hover:bg-[#252525] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  await deleteTemplate(templateToDelete.id);
+                  setTemplateToDelete(null);
+                }}
+                className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-md cursor-pointer transition-smooth"
+              >
+                Delete Preset
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Excel Customer Import Modal */}
+      <ExcelImportModal
+        isOpen={isExcelImportOpen}
+        onClose={() => setIsExcelImportOpen(false)}
+      />
 
     </div>
   );

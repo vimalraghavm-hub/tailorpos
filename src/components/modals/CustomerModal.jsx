@@ -237,16 +237,16 @@ export const CustomerModal = ({
     >
         
         {/* Header */}
-        <div className="p-5 border-b border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between bg-[#F5F5F5]/60 dark:bg-[#252525]/60 shrink-0">
+        <div className="p-3.5 sm:p-5 border-b border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between bg-[#F5F5F5]/60 dark:bg-[#252525]/60 shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-[#202020] text-white dark:bg-white dark:text-[#202020]">
               {isEdit ? <Edit3 className="w-5 h-5 text-emerald-400 dark:text-emerald-600" /> : <UserPlus className="w-5 h-5 text-emerald-400 dark:text-emerald-600" />}
             </div>
             <div>
-              <h3 className="font-bold text-base text-[#202020] dark:text-white leading-tight">
+              <h3 className="font-bold text-sm sm:text-base text-[#202020] dark:text-white leading-tight">
                 {isEdit ? 'Edit Customer Profile' : 'Add New Customer'}
               </h3>
-              <p className="text-xs text-[#777777]">
+              <p className="text-[11px] sm:text-xs text-[#777777]">
                 {isEdit ? `Updating profile for ${customerToEdit.name}` : 'Create profile & save initial measurement info'}
               </p>
             </div>
@@ -262,7 +262,7 @@ export const CustomerModal = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} noValidate className="flex flex-col flex-1 overflow-hidden">
-          <div className="p-6 overflow-y-auto space-y-6 flex-1">
+          <div className="p-4 sm:p-6 overflow-y-auto space-y-5 flex-1">
 
             {/* Section 1: Customer Information */}
             <div className="space-y-4">
@@ -315,7 +315,10 @@ export const CustomerModal = ({
                         return (
                           <div
                             key={c.id}
-                            onClick={() => handleSelectExistingCustomer(c)}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              handleSelectExistingCustomer(c);
+                            }}
                             className="p-3 rounded-xl hover:bg-[#F5F5F5] dark:hover:bg-[#282828] cursor-pointer transition-smooth flex items-center justify-between text-xs mb-1"
                           >
                             <div>
@@ -390,7 +393,10 @@ export const CustomerModal = ({
                         return (
                           <div
                             key={c.id}
-                            onClick={() => handleSelectExistingCustomer(c)}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              handleSelectExistingCustomer(c);
+                            }}
                             className="p-3 rounded-xl hover:bg-[#F5F5F5] dark:hover:bg-[#282828] cursor-pointer transition-smooth flex items-center justify-between text-xs mb-1"
                           >
                             <div>

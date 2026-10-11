@@ -72,16 +72,16 @@ export const WorkflowEditorModal = ({ onClose }) => {
       zIndex={10010}
     >
         {/* Modal Header */}
-        <div className="p-5 border-b border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between bg-[#F5F5F5]/60 dark:bg-[#252525]/60 shrink-0">
+        <div className="p-3.5 sm:p-5 border-b border-[#E3E3E3] dark:border-[#333333] flex items-center justify-between bg-[#F5F5F5]/60 dark:bg-[#252525]/60 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-amber-600 text-white">
               <Layers className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-base text-[#202020] dark:text-white leading-tight">
+              <h3 className="font-bold text-sm sm:text-base text-[#202020] dark:text-white leading-tight">
                 Production Workflow Editor
               </h3>
-              <p className="text-xs text-[#777777]">Customize, reorder, or rename workshop task statuses</p>
+              <p className="text-[11px] sm:text-xs text-[#777777]">Customize, reorder, or rename workshop task statuses</p>
             </div>
           </div>
           <button 
@@ -93,7 +93,7 @@ export const WorkflowEditorModal = ({ onClose }) => {
         </div>
 
         {/* Playlist-style Status List Body */}
-        <div className="p-6 overflow-y-auto space-y-4 flex-1">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1">
 
           {/* Add Status Input Form */}
           <form onSubmit={handleAddStatus} className="flex items-center gap-2">

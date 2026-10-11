@@ -4,7 +4,6 @@ export const GARMENT_MEASUREMENT_TYPES = [
   { id: 'top', label: 'Top' },
   { id: 'shirt', label: 'Shirt' },
   { id: 'pant', label: 'Pant' },
-  { id: 'trouser', label: 'Trouser' },
   { id: 'custom', label: 'Custom' }
 ];
 

@@ -18,6 +18,21 @@ export const paymentsService = {
     return data;
   },
 
+  async getAllPayments(shopId = 'a1000000-0000-0000-0000-000000000001') {
+    if (!isSupabaseConfigured || !supabase) return [];
+    const { data, error } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('shop_id', shopId)
+      .order('paid_at', { ascending: false });
+
+    if (error) {
+      console.error("Error fetching all payments:", error);
+      return [];
+    }
+    return data || [];
+  },
+
   async recordPayment(shopId, orderId, amount, paymentMethod = 'CASH', referenceNumber = null, notes = '', profileId = null) {
     if (!isSupabaseConfigured || !orderId) return { success: true };
 
@@ -62,69 +77,104 @@ export const paymentsService = {
 
     console.log(`[PAYMENT INSERT] shopId: ${shopId}, orderId: ${orderUuid}, paymentId: ${newPayment.id}, paymentAmount: ₹${paymentVal}`);
 
-    // 2. Update order totals
-    const { data: targetOrder } = await supabase
+    // 2. Authoritative check of order totals and payments
+    const { data: targetOrder, error: orderFetchErr } = await supabase
       .from('orders')
-      .select('total_amount, total_paid, status, customer_id, invoice_number')
+      .select('total_amount, total_paid, status, customer_id, invoice_number, delivered_at')
       .eq('id', orderUuid)
       .maybeSingle();
 
-    let updatedTotalPaid = paymentVal;
-    let updatedBalance = 0;
+    if (orderFetchErr || !targetOrder) {
+      console.error('Error fetching target order after payment:', orderFetchErr);
+      return { success: true, data: newPayment };
+    }
+
+    // Query authoritative payments sum for this order from payments table
+    const { data: orderPayments } = await supabase
+      .from('payments')
+      .select('amount')
+      .eq('order_id', orderUuid);
+
+    const totalAmount = parseFloat(targetOrder.total_amount) || 0;
+    const beforePaid = parseFloat(targetOrder.total_paid) || 0;
+    const authoritativeTotalPaid = (orderPayments && orderPayments.length > 0)
+      ? orderPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
+      : (beforePaid + paymentVal);
+
+    let updatedTotalPaid = authoritativeTotalPaid;
+    let updatedBalance = Math.max(0, totalAmount - updatedTotalPaid);
+    const isPaid = updatedBalance <= 0 || Math.abs(updatedBalance) < 0.01;
+    if (isPaid) updatedBalance = 0;
+
     let custBalance = 0;
 
-    if (targetOrder) {
-      const totalAmount = parseFloat(targetOrder.total_amount) || 0;
-      const beforePaid = parseFloat(targetOrder.total_paid) || 0;
-      updatedTotalPaid = beforePaid + paymentVal;
-      updatedBalance = Math.max(0, totalAmount - updatedTotalPaid);
-      const isPaid = updatedBalance === 0;
+    console.log(`[PAYMENT BEFORE STATE] shopId: ${shopId}, orderId: ${orderUuid}, invoiceNumber: ${targetOrder.invoice_number}, customerId: ${targetOrder.customer_id}, beforePaid: ₹${beforePaid}, total: ₹${totalAmount}, balance: ₹${Math.max(0, totalAmount - beforePaid)}`);
 
-      console.log(`[PAYMENT BEFORE STATE] shopId: ${shopId}, orderId: ${orderUuid}, invoiceNumber: ${targetOrder.invoice_number}, customerId: ${targetOrder.customer_id}, beforePaid: ₹${beforePaid}, total: ₹${totalAmount}, balance: ₹${Math.max(0, totalAmount - beforePaid)}`);
+    const updatePayload = {
+      total_paid: updatedTotalPaid,
+      advance_paid: updatedTotalPaid,
+      paid_amount: updatedTotalPaid,
+      amount_paid: updatedTotalPaid,
+      balance_amount: updatedBalance,
+      pending_amount: updatedBalance,
+      balance_due: updatedBalance,
+      updated_at: new Date().toISOString()
+    };
 
-      const updatePayload = {
-        total_paid: updatedTotalPaid,
-        advance_paid: updatedTotalPaid,
-        paid_amount: updatedTotalPaid,
-        amount_paid: updatedTotalPaid,
-        balance_amount: updatedBalance,
-        pending_amount: updatedBalance,
-        balance_due: updatedBalance,
-        updated_at: new Date().toISOString()
-      };
+    if (isPaid) {
+      updatePayload.payment_status = 'PAID';
+      updatePayload.status = 'DELIVERED';
+      updatePayload.overall_status = 'DELIVERED';
+      updatePayload.workflow_status = 'DELIVERED';
+      updatePayload.is_delivered = true;
+      updatePayload.delivered_at = targetOrder.delivered_at || new Date().toISOString();
 
-      if (isPaid) {
-        updatePayload.payment_status = 'PAID';
-        if (targetOrder.status !== 'DELIVERED') {
-          updatePayload.status = 'PAID';
+      // Sync all active order items to DELIVERED
+      try {
+        const { error: itemsErr } = await supabase
+          .from('order_items')
+          .update({ status: 'DELIVERED', updated_at: new Date().toISOString() })
+          .eq('order_id', orderUuid)
+          .neq('status', 'CANCELLED');
+        if (itemsErr) {
+          console.warn('Notice updating order items to DELIVERED:', itemsErr.message);
         }
-      } else if (updatedTotalPaid > 0) {
-        updatePayload.payment_status = 'PARTIALLY PAID';
+      } catch (e) {
+        console.warn('Notice updating order items to DELIVERED:', e);
       }
+    } else if (updatedTotalPaid > 0) {
+      updatePayload.payment_status = 'PARTIALLY PAID';
+    }
 
-      await supabase
-        .from('orders')
-        .update(updatePayload)
-        .eq('id', orderUuid);
+    const { error: updateOrderErr } = await supabase
+      .from('orders')
+      .update(updatePayload)
+      .eq('id', orderUuid);
 
-      console.log(`[PAYMENT AFTER STATE] shopId: ${shopId}, orderId: ${orderUuid}, invoiceNumber: ${targetOrder.invoice_number}, beforePaid: ₹${beforePaid}, paymentAmount: ₹${paymentVal}, afterPaid: ₹${updatedTotalPaid}, balance: ₹${updatedBalance}`);
+    if (updateOrderErr) {
+      console.error('Error updating order delivery/payment status:', updateOrderErr.message);
+      return { success: false, error: updateOrderErr.message };
+    }
 
-      // Idempotent audit status history for PAID
-      if (isPaid) {
-        try {
-          const { data: existingPaidHist } = await supabase
+    console.log(`[PAYMENT AFTER STATE] shopId: ${shopId}, orderId: ${orderUuid}, invoiceNumber: ${targetOrder.invoice_number}, beforePaid: ₹${beforePaid}, paymentAmount: ₹${paymentVal}, afterPaid: ₹${updatedTotalPaid}, balance: ₹${updatedBalance}, status: ${isPaid ? 'DELIVERED' : targetOrder.status}`);
+
+    if (isPaid) {
+      // Idempotent audit status history for DELIVERED
+      try {
+          const { data: existingDeliveredHist } = await supabase
             .from('order_status_history')
             .select('id')
             .eq('order_id', orderUuid)
-            .eq('status_name', 'PAID');
+            .eq('status_name', 'DELIVERED');
 
-          if (!existingPaidHist || existingPaidHist.length === 0) {
+          if (!existingDeliveredHist || existingDeliveredHist.length === 0) {
             await supabase.from('order_status_history').insert([{
               shop_id: shopId,
               order_id: orderUuid,
-              status_name: 'PAID',
+              status_name: 'DELIVERED',
               changed_by: validProfileId,
-              changed_at: new Date().toISOString()
+              changed_at: new Date().toISOString(),
+              notes: 'Order automatically marked Delivered upon zero balance settlement'
             }]);
           }
         } catch (e) {}
@@ -155,7 +205,6 @@ export const paymentsService = {
 
       console.log(`[PAYMENT SUCCESS] orderId: ${orderUuid} total: ₹${totalAmount} paid: ₹${updatedTotalPaid} balance: ₹${updatedBalance} customerOutstanding: ₹${custBalance}`);
       console.log(`[PAYMENT CUSTOMER BALANCE] shopId: ${shopId}, customerId: ${targetOrder.customer_id}, orderId: ${orderUuid}, invoiceNumber: ${targetOrder.invoice_number}, beforePaid: ₹${beforePaid}, paymentAmount: ₹${paymentVal}, afterPaid: ₹${updatedTotalPaid}, balance: ₹${updatedBalance}, customerOutstanding: ₹${custBalance}`);
-    }
 
     console.log(`[PAYMENT END] shopId: ${shopId}, orderId: ${orderUuid}, success: true`);
 

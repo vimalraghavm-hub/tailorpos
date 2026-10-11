@@ -78,8 +78,8 @@ BEGIN
     FROM public.expenses
     WHERE shop_id = v_shop_id AND expense_date = v_today;
 
-    -- Estimated Net = Total Sales - Total Expenses
-    v_estimated_net := v_today_sales - v_today_expenses;
+    -- Estimated Net Profit = Revenue (cash collected) - Expenses
+    v_estimated_net := v_today_revenue - v_today_expenses;
 
     v_result := jsonb_build_object(
         'today_revenue', v_today_revenue,

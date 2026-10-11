@@ -18,7 +18,11 @@ export const measurementTemplatesService = {
     return templates.map(t => {
       const activeFields = (t.fields || [])
         .filter(f => f.is_active)
-        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        .sort((a, b) => {
+          const sortA = (a.sort_order !== undefined && a.sort_order !== null) ? a.sort_order : 999;
+          const sortB = (b.sort_order !== undefined && b.sort_order !== null) ? b.sort_order : 999;
+          return sortA - sortB;
+        });
 
       return {
         id: t.id,
@@ -150,6 +154,17 @@ export const measurementTemplatesService = {
     const key = label.toLowerCase().replace(/[^a-z0-9]/g, '_');
     const fieldId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : undefined;
 
+    let nextSortOrder = 1;
+    const { data: existingFields } = await supabase
+      .from('measurement_template_fields')
+      .select('sort_order')
+      .eq('template_id', templateId);
+
+    if (existingFields && existingFields.length > 0) {
+      const maxSort = Math.max(...existingFields.map(f => f.sort_order || 0));
+      nextSortOrder = maxSort + 1;
+    }
+
     const { data, error } = await supabase
       .from('measurement_template_fields')
       .upsert({
@@ -159,6 +174,7 @@ export const measurementTemplatesService = {
         field_key: key,
         unit: fieldUnit,
         field_type: 'number',
+        sort_order: nextSortOrder,
         is_active: true,
         updated_at: new Date().toISOString()
       }, { onConflict: 'template_id, field_key' })
@@ -206,6 +222,33 @@ export const measurementTemplatesService = {
       .eq('shop_id', shopId);
 
     if (error) return { success: false, error: error.message };
+    return { success: true };
+  },
+
+  async reorderTemplateFields(templateId, fields) {
+    if (!isSupabaseConfigured || !templateId || !Array.isArray(fields)) return { success: true };
+
+    const upserts = fields.map((f, idx) => ({
+      id: f.id,
+      template_id: templateId,
+      field_name: f.label || f.field_name,
+      field_key: f.key || f.field_key,
+      unit: f.unit || 'inches',
+      field_type: f.type || 'number',
+      required: Boolean(f.required),
+      sort_order: idx + 1,
+      is_active: true,
+      updated_at: new Date().toISOString()
+    }));
+
+    const { error } = await supabase
+      .from('measurement_template_fields')
+      .upsert(upserts, { onConflict: 'id' });
+
+    if (error) {
+      console.error('Error reordering template fields:', error);
+      return { success: false, error: error.message };
+    }
     return { success: true };
   }
 };
