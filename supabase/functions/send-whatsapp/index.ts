@@ -67,7 +67,7 @@ serve(async (req) => {
     }
 
     // 3. Parse Request Payload
-    const { shopId, customerId, orderId, type, recipient, message, templateName } = await req.json();
+    const { shopId, customerId, orderId, type, recipient, message, templateName, documentUrl, filename } = await req.json();
 
     if (!recipient || !message) {
       return new Response(
@@ -114,7 +114,14 @@ serve(async (req) => {
       to: cleanRecipient,
     };
 
-    if (templateName) {
+    if (documentUrl) {
+      payload.type = "document";
+      payload.document = {
+        link: documentUrl,
+        caption: message,
+        filename: filename || "MohitTailoring_Invoice.pdf"
+      };
+    } else if (templateName) {
       payload.type = "template";
       payload.template = {
         name: templateName,

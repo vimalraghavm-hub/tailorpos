@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured } from '../lib/supabase/client';
+import { supabase, isSupabaseConfigured } from '../lib/supabase/client.js';
 
 export async function fetchNotificationHistory(shopId) {
   try {
@@ -21,7 +21,7 @@ export async function fetchNotificationHistory(shopId) {
 }
 
 export const messagingService = {
-  async sendNotification({ shopId, customerId, orderId, type = 'INVOICE', recipient, message, templateName = null }) {
+  async sendNotification({ shopId, customerId, orderId, type = 'INVOICE', recipient, message, templateName = null, documentUrl = null, filename = null }) {
     if (!isSupabaseConfigured || !supabase) {
       return { success: true, mode: 'demo', message: 'Manual wa.me demo fallback active (offline mode).' };
     }
@@ -35,7 +35,9 @@ export const messagingService = {
           type,
           recipient,
           message,
-          templateName
+          templateName,
+          documentUrl,
+          filename
         }
       });
 

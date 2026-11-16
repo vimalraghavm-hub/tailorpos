@@ -9,12 +9,14 @@ import {
   CheckCircle2,
   AlertTriangle,
   Eye,
-  Trash2
+  Trash2,
+  Send
 } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
 import { useModalDismiss } from '../../utils/modalUtils';
 import { Modal } from '../common/Modal';
 import { StatusBadge } from '../common/StatusBadge';
+import { WhatsAppModal } from './WhatsAppModal';
 
 export const OrderHistoryModal = ({ isOpen = true, onClose }) => {
   const { invoices = [], allInvoices = [], navigateTo, deleteOrder, userRole = 'OWNER' } = useShop();
@@ -25,6 +27,7 @@ export const OrderHistoryModal = ({ isOpen = true, onClose }) => {
   const [filterPeriod, setFilterPeriod] = useState('ALL'); // 'TODAY' | 'THIS_WEEK' | 'THIS_MONTH' | 'ALL'
   const [searchTerm, setSearchTerm] = useState('');
   const [invoiceToDelete, setInvoiceToDelete] = useState(null);
+  const [whatsAppInvoice, setWhatsAppInvoice] = useState(null);
 
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0];
@@ -212,6 +215,14 @@ export const OrderHistoryModal = ({ isOpen = true, onClose }) => {
                           >
                             <Eye className="w-3.5 h-3.5" /> View
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => setWhatsAppInvoice(inv)}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:text-emerald-700 cursor-pointer"
+                            title="Share Invoice via WhatsApp"
+                          >
+                            <Send className="w-3.5 h-3.5" /> WhatsApp
+                          </button>
                           {userRole === 'OWNER' && (
                             <button
                               type="button"
@@ -292,6 +303,14 @@ export const OrderHistoryModal = ({ isOpen = true, onClose }) => {
             </div>
           </div>
         </Modal>
+      )}
+
+      {whatsAppInvoice && (
+        <WhatsAppModal
+          invoice={whatsAppInvoice}
+          onClose={() => setWhatsAppInvoice(null)}
+          zIndex={10100}
+        />
       )}
 
     </Modal>

@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { X, Printer, Scissors, Receipt, Send } from 'lucide-react';
+import { X, Printer, Scissors, Receipt, Send, Loader2 } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
 import { useModalDismiss } from '../../utils/modalUtils';
 import { Modal } from '../common/Modal';
+import { shareOrderInvoiceOnWhatsApp } from '../../services/pdfInvoice';
 
 export const PrintInvoiceModal = ({ invoice, onClose }) => {
   const { settings, showToast } = useShop();
   const [printFormat, setPrintFormat] = useState('thermal'); // thermal | a4 | payment_slip
+  const [isSharingWhatsApp, setIsSharingWhatsApp] = useState(false);
 
   useModalDismiss(onClose, Boolean(invoice));
 
@@ -17,12 +19,24 @@ export const PrintInvoiceModal = ({ invoice, onClose }) => {
     showToast("Print Job Sent", "Sending document to printer...", "success");
   };
 
-  const handleWhatsAppShare = () => {
-    const cleanDigits = String(invoice.phone || '').replaceAll(/\D/g, '');
-    const customerPhone = cleanDigits.length === 10 ? `91${cleanDigits}` : cleanDigits;
-    const text = `Hello ${invoice.customerName}, your invoice #${invoice.id} from ${settings.shopName || 'Mohit Tailors'} is ready! Total: ₹${invoice.total}, Paid: ₹${invoice.advancePaid}, Balance: ₹${invoice.balance}. Delivery Date: ${invoice.dueDate}. Thank you!`;
-    const waUrl = `https://wa.me/${customerPhone}?text=${encodeURIComponent(text)}`;
-    window.open(waUrl, '_blank');
+  const handleWhatsAppShare = async () => {
+    if (isSharingWhatsApp) return;
+    setIsSharingWhatsApp(true);
+    try {
+      await shareOrderInvoiceOnWhatsApp(invoice.id || invoice.dbId || invoice, invoice.customerId || invoice.customer_id, {
+        settings,
+        showToast,
+        type: 'INVOICE'
+      });
+    } catch (err) {
+      console.error('Failed to share invoice on WhatsApp:', err);
+      showToast('Sharing Error', 'Failed to generate PDF invoice.', 'error');
+    } finally {
+      setIsSharingWhatsApp(false);
+    }
+
+
+
   };
 
   // Helper to extract non-empty, non-zero measurements for this invoice
@@ -338,10 +352,15 @@ export const PrintInvoiceModal = ({ invoice, onClose }) => {
           <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handleWhatsAppShare}
-              className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-md transition-smooth cursor-pointer"
+              disabled={isSharingWhatsApp}
+              className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs sm:text-sm shadow-md transition-smooth cursor-pointer"
             >
-              <Send className="w-4 h-4 text-white" />
-              Share Bill on WhatsApp
+              {isSharingWhatsApp ? (
+                <Loader2 className="w-4 h-4 animate-spin text-white" />
+              ) : (
+                <Send className="w-4 h-4 text-white" />
+              )}
+              {isSharingWhatsApp ? 'Sharing PDF...' : 'Share Bill on WhatsApp'}
             </button>
             <button
               onClick={handlePrint}

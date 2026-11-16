@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { X, Send, Copy, Check, MessageSquare, ExternalLink, Loader2 } from 'lucide-react';
+import { X, Send, Copy, Check, MessageSquare, ExternalLink, Loader2, FileText, Download, Eye } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
 import { useModalDismiss } from '../../utils/modalUtils';
 import { Modal } from '../common/Modal';
 import { normalizeWhatsAppPhone } from '../../utils/phoneUtils';
-import { messagingService } from '../../services/messaging';
+import { shareOrderInvoiceOnWhatsApp, generateOrderInvoicePdf, fetchOrderInvoiceData } from '../../services/pdfInvoice';
 
 export const WhatsAppModal = ({ 
   invoice, 
@@ -17,6 +17,8 @@ export const WhatsAppModal = ({
   const [copied, setCopied] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [messageText, setMessageText] = useState('');
+  const [pdfDetails, setPdfDetails] = useState(null);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   useModalDismiss(onClose, Boolean(invoice));
 
@@ -40,6 +42,32 @@ export const WhatsAppModal = ({
     }
   }, [invoice, type, settings]);
 
+  // Pre-generate PDF for preview and instant download
+  useEffect(() => {
+    let isMounted = true;
+    async function loadPdf() {
+      if (!invoice) return;
+      setIsGeneratingPdf(true);
+      try {
+        const invData = await fetchOrderInvoiceData(
+          invoice.id || invoice.dbId || invoice,
+          invoice.customerId || invoice.customer_id,
+          { settings, invoice }
+        );
+        if (!isMounted) return;
+        const result = generateOrderInvoicePdf(invData);
+        if (!isMounted) return;
+        setPdfDetails(result);
+      } catch (err) {
+        console.warn('PDF generation preview notice:', err);
+      } finally {
+        if (isMounted) setIsGeneratingPdf(false);
+      }
+    }
+    loadPdf();
+    return () => { isMounted = false; };
+  }, [invoice, settings]);
+
   if (!invoice) return null;
 
   const phoneStr = invoice.phone || invoice.customer_phone || '';
@@ -61,6 +89,22 @@ export const WhatsAppModal = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleDownloadPdf = () => {
+    if (!pdfDetails?.url) return;
+    const a = document.createElement('a');
+    a.href = pdfDetails.url;
+    a.download = pdfDetails.filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast("PDF Downloaded", `Downloaded ${pdfDetails.filename}`, "success");
+  };
+
+  const handlePreviewPdf = () => {
+    if (!pdfDetails?.url) return;
+    window.open(pdfDetails.url, '_blank');
+  };
+
   const handleSendCloudApi = async () => {
     if (isSending) return;
 
@@ -73,47 +117,48 @@ export const WhatsAppModal = ({
 
     setIsSending(true);
     try {
-      const res = await messagingService.sendNotification({
-        shopId: invoice.shop_id || 'a1000000-0000-0000-0000-000000000001',
-        customerId: invoice.customerId || invoice.customer_id,
-        orderId: invoice.dbId || invoice.id,
-        type: type,
-        recipient: recipientNumber,
-        message: messageText
-      });
+      const res = await shareOrderInvoiceOnWhatsApp(
+        invoice.id || invoice.dbId || invoice,
+        invoice.customerId || invoice.customer_id,
+        {
+          messageText,
+          type,
+          settings,
+          showToast,
+          useCloudApi: true
+        }
+      );
 
       if (res?.success) {
-        if (res.mode === 'demo') {
-          showToast("Demo Mode Active", "WhatsApp Cloud API secrets unconfigured. Launching manual chat.", "info");
-          handleOpenManualWhatsApp();
-          return;
-        } else {
-          showToast("Message Dispatched", `Official WhatsApp message sent to ${custName} (${recipientNumber})`, "success");
-        }
-      } else {
-        showToast("Messaging Notice", res?.error || "Cloud API failed, launching manual chat.", "info");
-        handleOpenManualWhatsApp();
-        return;
+        if (onConfirmStatusUpdate) onConfirmStatusUpdate();
+        onClose();
       }
     } catch (err) {
-      console.error(err);
-      showToast("Dispatch Error", "Failed to connect to WhatsApp Cloud API.", "error");
+      console.error('WhatsApp send error:', err);
+      showToast("Dispatch Error", "Failed to dispatch WhatsApp message.", "error");
     } finally {
       setIsSending(false);
-      if (onConfirmStatusUpdate) onConfirmStatusUpdate();
-      onClose();
     }
   };
 
-  const handleOpenManualWhatsApp = () => {
-    const cleanDigits = String(phoneStr).replaceAll(/\D/g, '');
-    const customerPhone = cleanDigits.length === 10 ? `91${cleanDigits}` : cleanDigits;
-    const encodedMessage = encodeURIComponent(messageText);
-    const waUrl = `https://wa.me/${customerPhone}?text=${encodedMessage}`;
-    window.open(waUrl, '_blank');
-    showToast("WhatsApp Opened", `Opened manual WhatsApp chat with ${custName}`, "info");
-    if (onConfirmStatusUpdate) onConfirmStatusUpdate();
-    onClose();
+  const handleOpenManualWhatsApp = async () => {
+    try {
+      await shareOrderInvoiceOnWhatsApp(
+        invoice.id || invoice.dbId || invoice,
+        invoice.customerId || invoice.customer_id,
+        {
+          messageText,
+          type,
+          settings,
+          showToast,
+          useCloudApi: false
+        }
+      );
+      if (onConfirmStatusUpdate) onConfirmStatusUpdate();
+      onClose();
+    } catch (err) {
+      console.error("Manual WhatsApp share error:", err);
+    }
   };
 
   const handleSkipWhatsApp = () => {
@@ -152,6 +197,58 @@ export const WhatsAppModal = ({
 
       {/* Modal Body */}
       <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
+        {/* PDF Attachment Preview Card */}
+        <div className="p-3.5 rounded-2xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                {isGeneratingPdf ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <FileText className="w-4 h-4" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-[#202020] dark:text-white truncate">
+                    {pdfDetails?.filename || `MohitTailoring_${invoice.id || 'INV'}.pdf`}
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 uppercase">
+                    PDF
+                  </span>
+                </div>
+                <p className="text-[11px] text-[#777777]">
+                  {isGeneratingPdf ? 'Generating PDF document...' : 'Branded A4 invoice with items & payment status'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              {pdfDetails?.url && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handlePreviewPdf}
+                    className="p-1.5 rounded-lg border border-[#E3E3E3] dark:border-[#333333] hover:bg-[#EEEEEE] dark:hover:bg-[#282828] text-[#777777] hover:text-[#202020] dark:hover:text-white transition-smooth cursor-pointer"
+                    title="Preview PDF Invoice"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadPdf}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-[11px] font-semibold transition-smooth cursor-pointer"
+                    title="Download PDF Invoice"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>Download</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
         <div>
           <label className="block text-xs font-bold text-[#777777] uppercase tracking-wider mb-2">
             Editable WhatsApp Message
@@ -168,7 +265,7 @@ export const WhatsAppModal = ({
         <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40 flex items-center justify-between gap-3 text-emerald-800 dark:text-emerald-300 text-xs">
           <div className="flex items-center gap-2">
             <Send className="w-4 h-4 shrink-0 text-emerald-600" />
-            <span>Sends WhatsApp message & logs notification status.</span>
+            <span>Sends message with generated PDF invoice attached.</span>
           </div>
           <button
             onClick={handleOpenManualWhatsApp}
