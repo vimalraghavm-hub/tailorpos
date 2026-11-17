@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured } from '../lib/supabase/client';
+import { supabase, isSupabaseConfigured } from '../lib/supabase/client.js';
 
 export const shopsService = {
   async getShopDetails(shopId) {

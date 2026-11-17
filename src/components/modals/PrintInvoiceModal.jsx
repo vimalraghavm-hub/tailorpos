@@ -23,11 +23,23 @@ export const PrintInvoiceModal = ({ invoice, onClose }) => {
     if (isSharingWhatsApp) return;
     setIsSharingWhatsApp(true);
     try {
-      await shareOrderInvoiceOnWhatsApp(invoice.id || invoice.dbId || invoice, invoice.customerId || invoice.customer_id, {
+      const res = await shareOrderInvoiceOnWhatsApp(invoice.id || invoice.dbId || invoice, invoice.customerId || invoice.customer_id, {
         settings,
         showToast,
-        type: 'INVOICE'
+        type: 'INVOICE',
+        useCloudApi: true
       });
+      if (res?.success) {
+        onClose();
+      } else if (res?.requiresManualFallback) {
+        await shareOrderInvoiceOnWhatsApp(invoice.id || invoice.dbId || invoice, invoice.customerId || invoice.customer_id, {
+          settings,
+          showToast,
+          type: 'INVOICE',
+          useCloudApi: false
+        });
+        onClose();
+      }
     } catch (err) {
       console.error('Failed to share invoice on WhatsApp:', err);
       showToast('Sharing Error', 'Failed to generate PDF invoice.', 'error');

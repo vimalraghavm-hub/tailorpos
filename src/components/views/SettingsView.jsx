@@ -40,7 +40,8 @@ export const SettingsView = () => {
   const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const { 
     settings, 
-    setSettings, 
+    setSettings,
+    updateShopSettings, 
     theme, 
     toggleTheme, 
     setThemeMode, 
@@ -78,8 +79,8 @@ export const SettingsView = () => {
 
   const [isSyncing, setIsSyncing] = useState(false);
 
-  const [shopName, setShopName] = useState(settings.shopName);
-  const [phone, setPhone] = useState(settings.phone);
+  const [shopName, setShopName] = useState(settings.shopName || '');
+  const [phone, setPhone] = useState(settings.phone || '');
 
   // Measurement Templates state
   const [showAddTemplateForm, setShowAddTemplateForm] = useState(false);
@@ -144,10 +145,27 @@ export const SettingsView = () => {
       console.error('Drag field error:', err);
     }
   };
-  const [address, setAddress] = useState(settings.address);
-  const [gstNumber, setGstNumber] = useState(settings.gstNumber);
-  const [invoicePrefix, setInvoicePrefix] = useState(settings.invoicePrefix);
-  const [nextInvoiceNumber, setNextInvoiceNumber] = useState(settings.nextInvoiceNumber);
+  const [address, setAddress] = useState(settings.address || '');
+  const [email, setEmail] = useState(settings.email || '');
+  const [tagline, setTagline] = useState(settings.tagline || '');
+  const [logo, setLogo] = useState(settings.logo || settings.logoUrl || '');
+  const [gstNumber, setGstNumber] = useState(settings.gstNumber || '');
+  const [invoicePrefix, setInvoicePrefix] = useState(settings.invoicePrefix || 'INV-');
+  const [nextInvoiceNumber, setNextInvoiceNumber] = useState(settings.nextInvoiceNumber || 1001);
+
+  useEffect(() => {
+    if (settings) {
+      if (settings.shopName !== undefined) setShopName(settings.shopName || '');
+      if (settings.phone !== undefined) setPhone(settings.phone || '');
+      if (settings.address !== undefined) setAddress(settings.address || '');
+      if (settings.email !== undefined) setEmail(settings.email || '');
+      if (settings.gstNumber !== undefined) setGstNumber(settings.gstNumber || '');
+      if (settings.tagline !== undefined) setTagline(settings.tagline || '');
+      if (settings.logo !== undefined) setLogo(settings.logo || '');
+      if (settings.invoicePrefix !== undefined) setInvoicePrefix(settings.invoicePrefix || 'INV-');
+      if (settings.nextInvoiceNumber !== undefined) setNextInvoiceNumber(settings.nextInvoiceNumber || 1001);
+    }
+  }, [settings]);
 
   // Workflow Modal state
   const [showWorkflowModal, setShowWorkflowModal] = useState(false);
@@ -367,18 +385,36 @@ export const SettingsView = () => {
     }
   };
 
-  const handleSaveSettings = (e) => {
+  const handleSaveSettings = async (e) => {
     if (e) e.preventDefault();
-    setSettings(prev => ({
-      ...prev,
-      shopName,
-      phone,
-      address,
-      gstNumber,
-      invoicePrefix,
-      nextInvoiceNumber: parseInt(nextInvoiceNumber) || prev.nextInvoiceNumber
-    }));
-    showToast("Settings Saved", "Shop preferences updated successfully", "success");
+    const updated = {
+      ...settings,
+      shopName: (shopName || '').trim(),
+      phone: (phone || '').trim(),
+      address: (address || '').trim(),
+      email: (email || '').trim(),
+      gstNumber: (gstNumber || '').trim(),
+      tagline: (tagline || '').trim(),
+      logo: (logo || '').trim(),
+      invoicePrefix: (invoicePrefix || 'INV-').trim(),
+      nextInvoiceNumber: parseInt(nextInvoiceNumber) || settings.nextInvoiceNumber
+    };
+    if (updateShopSettings) {
+      await updateShopSettings(updated);
+    } else {
+      setSettings(updated);
+    }
+    showToast("Settings Saved", "Shop preferences updated successfully. All new PDF invoices will reflect these changes.", "success");
+    return;
+
+
+
+
+
+
+
+
+
   };
 
   const handleAddStatus = (e) => {
@@ -527,6 +563,40 @@ export const SettingsView = () => {
                 type="text"
                 value={gstNumber}
                 onChange={(e) => setGstNumber(e.target.value)}
+                placeholder="e.g. 29ABCDE1234F1Z5"
+                className="w-full px-4 py-2.5 rounded-xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] text-xs font-bold text-[#202020] dark:text-white focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[#777777] mb-1">Email Address (Optional)</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="e.g. mohit@tailoring.com"
+                className="w-full px-4 py-2.5 rounded-xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] text-xs font-bold text-[#202020] dark:text-white focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[#777777] mb-1">Shop Tagline (Optional)</label>
+              <input
+                type="text"
+                value={tagline}
+                onChange={(e) => setTagline(e.target.value)}
+                placeholder="e.g. Smart tailoring. Simple management."
+                className="w-full px-4 py-2.5 rounded-xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] text-xs font-bold text-[#202020] dark:text-white focus:outline-none"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-xs font-semibold text-[#777777] mb-1">Shop Logo URL / Base64 (Optional)</label>
+              <input
+                type="text"
+                value={logo}
+                onChange={(e) => setLogo(e.target.value)}
+                placeholder="https://... or data:image/..."
                 className="w-full px-4 py-2.5 rounded-xl bg-[#F5F5F5] dark:bg-[#252525] border border-[#E3E3E3] dark:border-[#333333] text-xs font-bold text-[#202020] dark:text-white focus:outline-none"
               />
             </div>

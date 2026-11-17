@@ -67,7 +67,7 @@ serve(async (req) => {
     }
 
     // 3. Parse Request Payload
-    const { shopId, customerId, orderId, type, recipient, message, templateName, documentUrl, filename } = await req.json();
+    const { shopId, customerId, orderId, type, recipient, message, templateName, documentUrl, documentBase64, filename } = await req.json();
 
     if (!recipient || !message) {
       return new Response(
@@ -97,15 +97,81 @@ serve(async (req) => {
 
       return new Response(
         JSON.stringify({
-          success: true,
-          mode: "demo",
-          message: "WhatsApp Cloud API secrets unconfigured. Manual wa.me fallback active."
+          success: false,
+          mode: "unconfigured",
+          requiresManualFallback: true,
+          error: "WhatsApp Cloud API credentials (WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID) are not configured in Supabase secrets."
+
+
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
       );
     }
 
-    // 5. Send Official Meta WhatsApp Cloud API Request
+    // 5. Upload Document Media to Meta WhatsApp Media Endpoint if base64 provided
+    let mediaId: string | null = null;
+
+    if (documentBase64) {
+      try {
+        const binaryString = atob(documentBase64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const pdfBlob = new Blob([bytes], { type: "application/pdf" });
+
+        const mediaFormData = new FormData();
+        mediaFormData.append("file", pdfBlob, filename || "MohitTailoring_Invoice.pdf");
+        mediaFormData.append("type", "application/pdf");
+        mediaFormData.append("messaging_product", "whatsapp");
+
+        const mediaUploadRes = await fetch(
+          `https://graph.facebook.com/v18.0/${whatsappPhoneNumberId}/media`,
+          {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${whatsappAccessToken}`,
+            },
+            body: mediaFormData,
+          }
+        );
+
+        const mediaUploadData = await mediaUploadRes.json();
+        if (!mediaUploadRes.ok || !mediaUploadData.id) {
+          const uploadErrMsg = mediaUploadData.error?.message || "Failed to upload invoice PDF to WhatsApp Media API.";
+          console.error("WhatsApp Media Upload Error:", mediaUploadData);
+
+          await supabase.from("notifications").insert([{
+            shop_id: shopId || profile.shop_id,
+            customer_id: customerId || null,
+            order_id: orderId || null,
+            type: type || "CUSTOM",
+            channel: "WHATSAPP",
+            recipient: cleanRecipient,
+            message: message,
+            status: "FAILED",
+            sent_at: new Date().toISOString(),
+            error_message: `Media Upload Failed: ${uploadErrMsg}`,
+            template_name: templateName || null
+          }]);
+
+          return new Response(
+            JSON.stringify({ success: false, error: `Media Upload Failed: ${uploadErrMsg}` }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
+          );
+        }
+
+        mediaId = mediaUploadData.id;
+      } catch (uploadErr) {
+        console.error("Media processing exception:", uploadErr);
+        return new Response(
+          JSON.stringify({ success: false, error: `PDF Media Processing Error: ${(uploadErr as Error).message}` }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
+        );
+      }
+    }
+
+    // 6. Send Official Meta WhatsApp Cloud API Request
     const whatsappUrl = `https://graph.facebook.com/v18.0/${whatsappPhoneNumberId}/messages`;
     
     let payload: Record<string, unknown> = {
@@ -114,7 +180,14 @@ serve(async (req) => {
       to: cleanRecipient,
     };
 
-    if (documentUrl) {
+    if (mediaId) {
+      payload.type = "document";
+      payload.document = {
+        id: mediaId,
+        caption: message,
+        filename: filename || "MohitTailoring_Invoice.pdf"
+      };
+    } else if (documentUrl) {
       payload.type = "document";
       payload.document = {
         link: documentUrl,

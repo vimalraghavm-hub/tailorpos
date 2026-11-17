@@ -186,30 +186,68 @@ export async function fetchOrderInvoiceData(orderIdOrRef, customerId = null, fal
   }
   result.payments = dbPayments;
 
-  // 6. Fetch Shop Details from Supabase & Settings
+  // 6. Fetch Shop Details & Settings dynamically from Supabase & Settings
+  let localSavedSettings = {};
+  try {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('tailorpos_shop_settings');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') localSavedSettings = parsed;
+      }
+    }
+  } catch (e) {}
+
   let dbShop = null;
+  let dbShopSettings = {};
   if (isSupabaseConfigured && supabase) {
     try {
-      const { data, error } = await supabase
-        .from('shops')
-        .select('*')
-        .eq('id', shopId)
-        .maybeSingle();
-      if (!error && data) {
-        dbShop = data;
+      const [shopRes, settingsRes] = await Promise.all([
+        supabase.from('shops').select('*').eq('id', shopId).maybeSingle(),
+        supabase.from('shop_settings').select('*').eq('shop_id', shopId)
+      ]);
+      if (!shopRes.error && shopRes.data) {
+        dbShop = shopRes.data;
+      }
+      if (!settingsRes.error && Array.isArray(settingsRes.data)) {
+        settingsRes.data.forEach(item => {
+          if (item.setting_key && item.setting_value) {
+            if (typeof item.setting_value === 'object') {
+              dbShopSettings = { ...dbShopSettings, ...item.setting_value };
+            } else {
+              dbShopSettings[item.setting_key] = item.setting_value;
+            }
+          }
+        });
       }
     } catch (e) {
       console.warn('Notice fetching shop info from Supabase:', e);
     }
   }
 
-  const activeSettings = fallbackData.settings || {};
+  // Authoritative settings priority: explicit settings argument > localSavedSettings > dbShopSettings > dbShop
+  const activeSettings = {
+    ...dbShopSettings,
+    ...localSavedSettings,
+    ...(fallbackData.settings || {})
+  };
+
+  const dynamicShopName = activeSettings.shopName || activeSettings.name || dbShopSettings.shopName || dbShopSettings.name || dbShop?.name || 'Mohit Tailoring';
+  const dynamicPhone = activeSettings.phone !== undefined ? activeSettings.phone : (dbShopSettings.phone || dbShop?.phone || '');
+  const dynamicAddress = activeSettings.address !== undefined ? activeSettings.address : (dbShopSettings.address || dbShop?.address || '');
+  const dynamicEmail = activeSettings.email !== undefined ? activeSettings.email : (dbShopSettings.email || dbShop?.email || '');
+  const dynamicGst = activeSettings.gstNumber !== undefined ? activeSettings.gstNumber : (dbShopSettings.gstNumber || '');
+  const dynamicLogo = activeSettings.logo || activeSettings.logoUrl || dbShopSettings.logo || '';
+  const dynamicTagline = activeSettings.tagline || dbShopSettings.tagline || '';
+
   result.shop = {
-    name: dbShop?.name || activeSettings.shopName || defaultShopSettings.shopName || 'Mohit Tailoring',
-    phone: dbShop?.phone || activeSettings.phone || defaultShopSettings.phone || '',
-    address: dbShop?.address || activeSettings.address || defaultShopSettings.address || '',
-    email: dbShop?.email || activeSettings.email || 'support@mohittailoring.app',
-    gstNumber: activeSettings.gstNumber || defaultShopSettings.gstNumber || ''
+    name: dynamicShopName,
+    phone: dynamicPhone,
+    address: dynamicAddress,
+    email: dynamicEmail,
+    gstNumber: dynamicGst,
+    logo: dynamicLogo,
+    tagline: dynamicTagline
   };
 
   // 7. Authoritative Financial Calculations
@@ -273,33 +311,57 @@ export function generateOrderInvoicePdf(invoiceData) {
 
   // 2. Header: Shop Branding (Left)
   let cursorY = 46;
+
+  // Render logo if provided
+  let logoOffset = 0;
+  if (shop.logo && typeof shop.logo === 'string' && shop.logo.trim() !== '') {
+    try {
+      if (shop.logo.startsWith('data:image')) {
+        const format = shop.logo.includes('image/png') ? 'PNG' : 'JPEG';
+        doc.addImage(shop.logo, format, margin, cursorY - 14, 38, 38);
+        logoOffset = 46;
+      }
+    } catch (logoErr) {
+      console.warn('Notice adding shop logo to PDF:', logoErr);
+    }
+  }
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(20);
   doc.setTextColor(30, 41, 59); // slate-800
   const shopNameStr = (shop.name || 'MOHIT TAILORING').toUpperCase();
-  doc.text(shopNameStr, margin, cursorY);
+  doc.text(shopNameStr, margin + logoOffset, cursorY);
 
   cursorY += 16;
+
+  if (shop.tagline && String(shop.tagline).trim() !== '') {
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(String(shop.tagline).trim(), margin + logoOffset, cursorY);
+    cursorY += 12;
+  }
+
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(100, 116, 139); // slate-500
 
-  if (shop.address) {
-    const splitAddress = doc.splitTextToSize(shop.address, 280);
+  if (shop.address && String(shop.address).trim() !== '') {
+    const splitAddress = doc.splitTextToSize(String(shop.address).trim(), 280);
     doc.text(splitAddress, margin, cursorY);
     cursorY += (splitAddress.length * 11);
   }
 
   const contactParts = [];
-  if (shop.phone) contactParts.push(`Ph: ${shop.phone}`);
-  if (shop.email) contactParts.push(shop.email);
+  if (shop.phone && String(shop.phone).trim() !== '') contactParts.push(`Ph: ${String(shop.phone).trim()}`);
+  if (shop.email && String(shop.email).trim() !== '') contactParts.push(String(shop.email).trim());
   if (contactParts.length > 0) {
     doc.text(contactParts.join('  |  '), margin, cursorY);
     cursorY += 12;
   }
 
-  if (shop.gstNumber) {
-    doc.text(`GSTIN: ${shop.gstNumber}`, margin, cursorY);
+  if (shop.gstNumber && String(shop.gstNumber).trim() !== '') {
+    doc.text(`GSTIN: ${String(shop.gstNumber).trim()}`, margin, cursorY);
     cursorY += 12;
   }
 
@@ -444,7 +506,7 @@ export function generateOrderInvoicePdf(invoiceData) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(148, 163, 184); // slate-400
-      doc.text(`Mohit Tailoring — Page ${currentPg}`, margin, pageHeight - 20);
+      doc.text(`${shop.name || 'Mohit Tailoring'} — Page ${currentPg}`, margin, pageHeight - 20);
       doc.text('Computer Generated Invoice', rightX, pageHeight - 20, { align: 'right' });
     }
   });
@@ -540,7 +602,7 @@ export function generateOrderInvoicePdf(invoiceData) {
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(8.5);
     doc.setTextColor(100, 116, 139);
-    doc.text('Thank you for choosing Mohit Tailoring! We appreciate your business.', pageWidth / 2, thankYouY, { align: 'center' });
+    doc.text(`Thank you for choosing ${shop.name || 'Mohit Tailoring'}! We appreciate your business.`, pageWidth / 2, thankYouY, { align: 'center' });
   }
 
   // Format clean standardized filename: MohitTailoring_INV-1001.pdf
@@ -638,12 +700,21 @@ export async function shareOrderInvoiceOnWhatsApp(orderIdOrInvoice, customerId =
         filename: filename
       });
 
-      if (res?.success && res.mode !== 'demo') {
+      if (res?.success && res.mode === 'production') {
         showToast('WhatsApp Dispatched', `Invoice PDF sent to ${custName} (${recipientPhone}) via WhatsApp Cloud API`, 'success');
-        return { success: true, mode: 'cloud_api', filename };
+        return { success: true, mode: 'cloud_api', filename, provider_message_id: res.provider_message_id };
+      } else if (res?.mode === 'unconfigured' || res?.requiresManualFallback) {
+        showToast('WhatsApp Cloud API Unconfigured', 'Meta WhatsApp Cloud API credentials are not configured in Supabase secrets. Automatic PDF attachment via Meta requires credentials. Please use Manual Chat to download the PDF and send via WhatsApp.', 'warning');
+        return { success: false, mode: 'unconfigured', requiresManualFallback: true, error: res?.error };
+      } else {
+        const errMsg = res?.error || 'Failed to dispatch via WhatsApp Cloud API.';
+        showToast('Dispatch Failed', errMsg, 'error');
+        return { success: false, error: errMsg };
       }
     } catch (e) {
-      console.warn('Cloud API delivery notice, proceeding to standard share:', e);
+      console.warn('Cloud API delivery notice:', e);
+      showToast('Dispatch Error', (e && e.message) || 'Failed to connect to WhatsApp Cloud API.', 'error');
+      return { success: false, error: (e && e.message) || 'Dispatch error' };
     }
   }
 

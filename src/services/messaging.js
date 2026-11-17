@@ -21,7 +21,7 @@ export async function fetchNotificationHistory(shopId) {
 }
 
 export const messagingService = {
-  async sendNotification({ shopId, customerId, orderId, type = 'INVOICE', recipient, message, templateName = null, documentUrl = null, filename = null }) {
+  async sendNotification({ shopId, customerId, orderId, type = 'INVOICE', recipient, message, templateName = null, documentUrl = null, documentBase64 = null, filename = null }) {
     if (!isSupabaseConfigured || !supabase) {
       return { success: true, mode: 'demo', message: 'Manual wa.me demo fallback active (offline mode).' };
     }
@@ -37,6 +37,7 @@ export const messagingService = {
           message,
           templateName,
           documentUrl,
+          documentBase64,
           filename
         }
       });

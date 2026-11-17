@@ -16,6 +16,7 @@ import { googleSheetsService } from '../services/googleSheets';
 import { workersService, DEFAULT_WORKER_PERMISSIONS } from '../services/workers';
 import { measurementTemplatesService } from '../services/measurementTemplates';
 import { measurementsService } from '../services/measurements';
+import { shopsService } from '../services/shops';
 import { getKolkataDateStr, calculatePeriodFinancials } from '../utils/dateUtils';
 
 const ShopContext = createContext();
@@ -36,7 +37,26 @@ export const ShopProvider = ({ children }) => {
   const [invoices, setInvoices] = useState(() => isSupabaseConfigured ? [] : initialInvoices);
   const [allInvoices, setAllInvoices] = useState(() => isSupabaseConfigured ? [] : initialInvoices);
   const [services, setServices] = useState(defaultServicesList);
-  const [settings, setSettings] = useState(defaultShopSettings);
+  const [settings, setSettings] = useState(() => {
+    try {
+      const saved = typeof window !== 'undefined' ? localStorage.getItem('tailorpos_shop_settings') : null;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          return { ...defaultShopSettings, ...parsed };
+        }
+      }
+    } catch (e) {}
+    return defaultShopSettings;
+  });
+
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && settings) {
+        localStorage.setItem('tailorpos_shop_settings', JSON.stringify(settings));
+      }
+    } catch (e) {}
+  }, [settings]);
   const [notifications, setNotifications] = useState(defaultNotifications);
   const [measurementTemplates, setMeasurementTemplates] = useState([]);
   
@@ -437,6 +457,32 @@ export const ShopProvider = ({ children }) => {
         }));
         setProductionStatuses(formattedStatuses);
       }
+
+      // Fetch Shop Profile & Settings from Supabase
+      try {
+        const [dbShopDetails, dbSettingsMap] = await Promise.all([
+          shopsService.getShopDetails(shopId),
+          shopsService.getShopSettings(shopId)
+        ]);
+
+        if (dbShopDetails || dbSettingsMap) {
+          setSettings(prev => {
+            const merged = {
+              ...prev,
+              ...(dbSettingsMap?.profile || {}),
+              ...(dbSettingsMap?.invoice_settings || {}),
+              ...(typeof dbSettingsMap === 'object' ? dbSettingsMap : {})
+            };
+            if (dbShopDetails?.name) merged.shopName = dbShopDetails.name;
+            if (dbShopDetails?.phone) merged.phone = dbShopDetails.phone;
+            if (dbShopDetails?.email) merged.email = dbShopDetails.email;
+            if (dbShopDetails?.address) merged.address = dbShopDetails.address;
+            return merged;
+          });
+        }
+      } catch (shopErr) {
+        console.warn('Notice loading shop details from Supabase:', shopErr);
+      }
     } catch (err) {
       console.error('Error hydrating shop data from Supabase:', err);
     } finally {
@@ -777,6 +823,48 @@ export const ShopProvider = ({ children }) => {
     setTheme(newTheme);
     setSettings(prev => ({ ...prev, theme: newTheme }));
   };
+
+  const updateShopSettings = useCallback(async (newSettings) => {
+    setSettings(prev => {
+      const updated = { ...prev, ...newSettings };
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('tailorpos_shop_settings', JSON.stringify(updated));
+        }
+      } catch (e) {}
+      return updated;
+    });
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const updatePayload = {
+          name: newSettings.shopName || newSettings.name,
+          phone: newSettings.phone,
+          email: newSettings.email,
+          address: newSettings.address
+        };
+        await Promise.all([
+          shopsService.updateShopDetails(shopId, updatePayload),
+          shopsService.setShopSetting(shopId, 'profile', {
+            shopName: newSettings.shopName,
+            phone: newSettings.phone,
+            address: newSettings.address,
+            email: newSettings.email,
+            gstNumber: newSettings.gstNumber,
+            logo: newSettings.logo,
+            tagline: newSettings.tagline
+          }),
+          shopsService.setShopSetting(shopId, 'invoice_settings', {
+            invoicePrefix: newSettings.invoicePrefix,
+            nextInvoiceNumber: newSettings.nextInvoiceNumber
+          })
+        ]);
+      } catch (err) {
+        console.error('Failed to sync shop settings to Supabase:', err);
+      }
+    }
+    return { success: true };
+  }, [shopId]);
 
   const showToast = (title, message, type = 'success') => {
     const id = generateUniqueId('toast');
@@ -2549,6 +2637,8 @@ export const ShopProvider = ({ children }) => {
     allInvoices,
     services,
     settings,
+    setSettings,
+    updateShopSettings,
     notifications,
     productionStatuses,
     measurementTemplates,
@@ -2658,7 +2748,7 @@ export const ShopProvider = ({ children }) => {
     activeProfileCustomerId, editingOrder, theme, toasts, sidebarCollapsed,
     mobileMenuOpen, user, userProfile, userRole, showAuthModal, stats,
     analyticsData, expenses, expenseCategories, googleIntegration, workersList,
-    orderAssignmentsMap, customerAssignmentsMap, dbConnectionError
+    orderAssignmentsMap, customerAssignmentsMap, dbConnectionError, updateShopSettings
   ]);
 
   return (
